@@ -39,6 +39,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import lib_insert                                                 # noqa: E402
 from lib.util import log                                          # noqa: E402
 
 COMP = str.maketrans("ACGTacgtNn", "TGCAtgcaNn")
@@ -136,7 +137,15 @@ def main():
             if not ls or not ss:
                 n_skip["missing_allele"] += 1
                 continue
-            ins = ls[lcp:lcp + ilen]
+            # the insert comes from the LONG allele and needs a long-allele
+            # coordinate; the context window is centred on the insertion point
+            # in the SHORT allele and correctly uses lcp. The two frames are
+            # not the same number on the tolerant path.
+            i0, frame = lib_insert.locate_insert(r, ls)
+            if i0 < 0:
+                n_skip["insert_frame_unresolved"] += 1
+                continue
+            ins = ls[i0:i0 + ilen]
             lo = max(0, lcp - args.context)
             hi = min(len(ss), lcp + args.context)
             ctx = ss[lo:hi]
@@ -145,7 +154,14 @@ def main():
                 continue
             contributed.add(panel)
             rows.append({"panel": panel, "locus_id": lid,
-                         "insert_key": canon(ins), "context_key": canon(ctx),
+                         # canonical_insert_key, not canon(ins): a direct
+                         # repeat at the junction admits several equally valid
+                         # boundaries, the aligner's choice is not symmetric
+                         # under revcomp, and keying the raw slice therefore
+                         # split 351 of 21,051 E. coli events in two.
+                         "insert_key": lib_insert.canonical_insert_key(ls, i0, ilen),
+                         "context_key": canon(ctx),
+                         "frame": frame,
                          "inserted_len": ilen, "offset": lcp,
                          "overlap": int(r.get("junction_ambiguity_bp") or 0),
                          "lost": int(r.get("target_bases_lost") or 0),
@@ -183,6 +199,7 @@ def main():
 
     cols = ["event_id", "panel", "locus_id", "insert_key", "context_key",
             "inserted_len", "offset", "overlap", "lost", "method", "placement",
+            "frame",
             "event_n_loci", "event_n_panels"]
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     with open(args.out + "_loci_to_event.tsv", "w") as fh:

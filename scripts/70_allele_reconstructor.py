@@ -231,6 +231,12 @@ def tolerant_decompose(short, long_, min_cov, min_ident, min_insert, dominance):
             "n_snp": cols - matches, "n_small_indel": n_small_indel,
             "edit_distance": (cols - matches) + big + sum(others),
             "lcp": sp, "lcs": len(short) - sp,
+            # sp is a SHORT-allele offset (it is the insertion point in the
+            # empty target). bl0 is where the same insert starts in the LONG
+            # allele. On the exact path those coincide; here they differ by the
+            # upstream indels, so a consumer that wants to re-slice the long
+            # allele needs this one and not lcp. See scripts/lib_insert.py.
+            "insert_start_long": bl0,
             "target_lost": sum(dels),
             "insert_seq": long_[bl0:bl1],
             "ambiguity": _slide(long_, bl0, bl1),
@@ -477,7 +483,13 @@ def main():
         "alignment_edit_distance", "n_long_alleles_tested",
         "inserted_len_spread", "class_stable",
         "n_candidate_anchor_pairs", "best_pair_score", "second_pair_score",
-        "placement_score_margin", "placement_confidence", "placement_status"]) + "\n")
+        "placement_score_margin", "placement_confidence", "placement_status",
+        # APPENDED 2026-09-24, deliberately last so no existing column index
+        # moves. `lcp_bp` is an offset in the SHORT allele; this is where the
+        # same insert starts in the LONG one. They differ on the tolerant path
+        # by the upstream indels. Consumers must slice the long allele with
+        # THIS. See scripts/lib_insert.py for the full account.
+        "insert_start_in_long_bp"]) + "\n")
     al_fh.write("\t".join([
         "locus_id", "allele_id", "length", "md5", "n_genomes", "genomes",
         "sequence_if_short"]) + "\n")
@@ -512,6 +524,8 @@ def main():
         sl, ll = len(short_seq), len(long_seq)
 
         lcp, lcs, ins_seq, amb = decompose(short_seq, long_seq)
+        # exact path: the common prefix counts the same bases in both alleles
+        ins_start_long = lcp
         method, tq = "exact", float("nan")
         hid = hcov = float("nan")
         big = second = nsnp = nsi = edist = -1
@@ -531,6 +545,7 @@ def main():
                 method = "tolerant_alignment"
                 lcp, lcs = td["lcp"], td["lcs"]
                 ins_seq, amb = td["insert_seq"], td["ambiguity"]
+                ins_start_long = td["insert_start_long"]
         # amb >= 0 : junction cannot be placed to the base, that many bp read
         #            equally well on either side (microhomology / TSD-like).
         # amb <  0 : the short allele has bases that survive on NEITHER side of
@@ -558,13 +573,13 @@ def main():
             # a prefix/suffix decomposition says nothing. min()/max() would
             # also return the SAME sequence here, silently faking a clean call.
             ev = "substitution_only"
-            lcp = lcs = ambiguity = lost = 0
+            lcp = lcs = ambiguity = lost = ins_start_long = 0
             ins_seq = ""
         elif len(ins_seq) < args.min_insert:
             # THE FLOOR, applied on both paths. The exact path previously had
             # none, so a 1 bp difference decomposed into a reportable "insert".
             ev = "below_min_insert"
-            lcp = lcs = ambiguity = lost = 0
+            lcp = lcs = ambiguity = lost = ins_start_long = 0
         elif sl == 0:
             ev = "pure_insertion"
         elif method == "tolerant_alignment":
@@ -672,7 +687,8 @@ def main():
             "%.4f" % hcov if hcov == hcov else "NA",
             big, second, nsnp, nsi, edist,
             n_alt, len_spread, stable,
-            n_pairs, bsc, ssc, pmar, pconf, pstatus])) + "\n")
+            n_pairs, bsc, ssc, pmar, pconf, pstatus,
+            ins_start_long])) + "\n")
 
         # pre-event target context: taken from a genome carrying the SHORTEST
         # allele, because the carrier's own flanks may have been altered by the

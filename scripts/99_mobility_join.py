@@ -62,6 +62,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import lib_insert                                                 # noqa: E402
 from lib.util import log                                          # noqa: E402
 
 
@@ -152,7 +153,13 @@ def main():
         ls = aseq.get(lid, {}).get(r["longest_allele"], "")
         if not ls:
             continue
-        dec[lid] = {"seq": ls[lcp:lcp + ilen], "row": r,
+        # NOT ls[lcp:lcp+ilen]: lcp_bp is a SHORT-allele offset and using it
+        # here mis-sliced 31.1% of tolerant-path loci, which then made M2 ask
+        # its question of the wrong sequence.
+        i0, frame = lib_insert.locate_insert(r, ls)
+        iseq = ls[i0:i0 + ilen] if i0 >= 0 else ""
+        key = lib_insert.canonical_insert_key(ls, i0, ilen) if i0 >= 0 else ""
+        dec[lid] = {"seq": iseq, "m2key": key, "frame": frame, "row": r,
                     "carriers": carriers.get(lid, {}).get(r["longest_allele"], [])}
     log("%d decomposable loci with an insert" % len(dec))
 
@@ -178,24 +185,44 @@ def main():
         """Global identity of a locus: its event when known, else the locus id."""
         return ev_of.get(lid, lid)
 
+    # KEY: canonical, not `inserted_md5`. inserted_md5 hashes the insert as
+    # stored, so the same element captured on opposite strands in two
+    # assemblies hashes to two values and M2 answers False for both. The
+    # question M2 asks -- "is this element also somewhere else" -- has no
+    # strand in it. lib_insert.canon_key hashes min(seq, revcomp(seq)).
     by_md5_unit = collections.defaultdict(set)
     by_md5_genome = collections.defaultdict(set)
+    n_nokey = 0
     for lid, d in dec.items():
-        md5 = d["row"].get("inserted_md5") or ""
-        if md5:
-            by_md5_unit[md5].add(unit(lid))
+        key = d["m2key"]
+        if key:
+            by_md5_unit[key].add(unit(lid))
             for g in d["carriers"]:
-                by_md5_genome[md5].add(g)
+                by_md5_genome[key].add(g)
+        else:
+            n_nokey += 1
+    if n_nokey:
+        log("  %d loci carry no verifiable insert sequence; M2 is False for "
+            "them by absence of evidence, not by evidence of absence" % n_nokey)
     for lid, d in dec.items():
-        md5 = d["row"].get("inserted_md5") or ""
-        other = by_md5_unit.get(md5, set()) - {unit(lid)}
-        d["m2_loci"] = len(by_md5_unit.get(md5, set()))
-        d["m2_genomes"] = len(by_md5_genome.get(md5, set()))
+        key = d["m2key"]
+        other = by_md5_unit.get(key, set()) - {unit(lid)} if key else set()
+        d["m2_loci"] = len(by_md5_unit.get(key, set())) if key else 0
+        d["m2_genomes"] = len(by_md5_genome.get(key, set())) if key else 0
         d["m2"] = len(other) > 0     # a DIFFERENT EVENT, not another locus_id
 
 
     # ---- M1: map each insert to its carrier's Arm A families ---------------
     fam = {}
+    if not os.path.isdir(args.arma):
+        # sa_k12 shares sa_k24's Arm A -- the k-experiment arms differ only in
+        # panel size -- so a missing armA dir is a wiring mistake in the caller,
+        # not a species with no multi-copy families. Say which, and stop: M1
+        # silently False for every locus reads exactly like a real negative.
+        log("FATAL: --arma %s does not exist. M1 cannot be computed and an "
+            "all-False M1 column is indistinguishable from a true negative."
+            % args.arma)
+        return 5
     for f in os.listdir(args.arma):
         if not f.endswith("_families.tsv"):
             continue
