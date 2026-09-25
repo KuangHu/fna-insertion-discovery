@@ -1,0 +1,26 @@
+# Binaries and environments — rebuilt, not versioned
+env/
+hmm/
+**/__pycache__/
+*.pyc
+
+# SLURM logs
+slurm-*.out
+*_%j.out
+
+# Data lives on scratch, never in the repo
+# /global/scratch/users/kh36969/fna_ins_discovery/
+*.fna
+*.faa
+*.gff
+*.paf
+*.gfa
+*.bed
+*.jsonl
+*.tsv.gz
+
+# Large derived tables — regenerate with the pipeline
+database/
+catalogue/
+bags/
+cds/

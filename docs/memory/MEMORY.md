@@ -1,0 +1,9 @@
+- [FNA-ins-discovery paths](fna-ins-discovery-paths.md) — code, scratch workdir, test genomes, envs, and the PATH that avoids a conda solve.
+- [FNA-ins-discovery state](fna-ins-discovery-state.md) — current numbers, what the README gets wrong now, and the four open items.
+- [Stage 60 is a 2x2](fna-ins-discovery-stage60.md) — contingency vs ISEScan, and why the novel cell must not be graded there.
+- [Don't rebuild the design](fna-ins-discovery-dont-rebuild.md) — the user restates the full pipeline as context; implement only the delta.
+- [Long jobs need SLURM](long-jobs-need-slurm.md) — background shells die with the session; an ISEScan run lost 75 min of compute.
+- [Stage 60 result](fna-ins-discovery-bench60-result.md) — Arm A recall tracks copy number: 100% on IS110, 0% on low-copy families.
+- [Stage 50 result](fna-ins-discovery-stage50-result.md) — the ArmA+/ISEScan- pool is Rhs toxins and prophage, not novel MGE.
+- [Target site recorder design](target-site-recorder-design.md) — separate module, anchored on homologous anchors, not POS.
+- [Union recall A u B](fna-ins-discovery-union-recall.md) — 85.7% family-level; Arm B rescues only 4 units; IS6/IS256 missed by both.

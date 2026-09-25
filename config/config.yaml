@@ -1,0 +1,61 @@
+# FNA-only mobile-element discovery -- configuration
+#
+# Thresholds are conservative for a first pass. Every one is a CLI flag too,
+# so a sweep does not need this file edited.
+
+workdir: /global/scratch/users/kh36969/fna_ins_discovery
+envs:
+  core:  /global/home/users/kh36969/.conda/envs/fnains
+  sv:    /global/home/users/kh36969/.conda/envs/fnains_sv
+  annot: /global/home/users/kh36969/.conda/envs/fnains_annot
+  pangraph: /global/home/users/kh36969/fna_based_mgefinder_project/env/bin/pangraph
+
+slurm:
+  account: pc_rubinlab
+  partition: lr6
+  qos: lr_normal
+
+# ---------------------------------------------------------------- stage 10
+cluster:
+  min_ani: 99.0        # strain level; loci must be genuinely homologous
+  min_af: 85.0         # ALIGNED FRACTION -- the real guard, see script docstring
+  min_cluster_size: 4
+  max_cluster_size: 200
+  min_n50: 20000       # below this, junctions are unresolvable in principle
+  max_contigs: 1000
+
+# ------------------------------------------- stage 20 (Arm A: multi-copy)
+armA:
+  min_identity: 90.0
+  min_len: 300
+  max_len: 5000        # insertion elements only; >5 kb is out of scope
+  min_copies: 3        # 2 copies are as often a segmental duplication
+  min_locus_sep: 10000
+  flank: 500
+  kmer: 15
+  min_sharpness: 0.15  # inside-minus-outside conservation drop
+  max_flank_homology: 0.40   # at/above this the flanks are shared -> seg dup
+
+# ------------------------------------ stage 30/31 (Arm B: empty vs filled)
+armB:
+  engine: minigraph    # minigraph | pangraph
+  min_insert: 300
+  max_insert: 5000     # insertion elements only; >5 kb is out of scope
+  len_tol: 50
+  flank_qc: 500
+  # TSD is recorded, NEVER used as a filter -- the IS110/IS1111 family makes no
+  # target-site duplication, so gating on TSD would discard exactly the family
+  # of interest. Measured: 0/13 IS110 events carry a TSD vs 43/170 non-IS110.
+  min_tsd: 3
+  max_tsd: 30
+
+# ---------------------------------------------------------------- stage 40
+merge:
+  min_seq_id: 0.85
+  cov: 0.80
+  outgroup: null       # path to a genome-name list; enables GAIN/LOSS polarity
+
+# ---------------------------------------------- stage 50 (annotation LAST)
+annotate:
+  hmm: /global/home/users/kh36969/fna_based_mgefinder_project/hmm/is110_DEDD_Tnp20.hmm
+  min_orf_frac: 0.4
