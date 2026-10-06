@@ -202,8 +202,18 @@ allele: the short allele is essentially the 200 bp pad (it equals the seed
 interval width in 95.5% of loci) and its boundaries shift between panels, so
 hashing it under-merges.
 
-Redundancy is real and species-dependent: E. coli 1.98×, K. pneumoniae 2.60×,
-A. baumannii 3.31×, M. tuberculosis 4.39×, **M. pneumoniae 67×**.
+Redundancy is real and species-dependent: E. coli 2.01×, K. pneumoniae 2.66×,
+A. baumannii 3.40×, M. tuberculosis 4.55×, **M. pneumoniae 67.4×**; 2.54×
+overall.
+
+**The insert key must be junction-invariant.** A direct repeat at the junction
+admits several equally valid boundaries, all reconstructing the identical
+derived allele, and the alignment's choice is not symmetric under reverse
+complementation — measured, re-deciding the junction in the revcomp frame keeps
+the key for 79.7% of loci at overlap 0 and **0.0% at every overlap ≥ 1**. So
+`lib_insert.canonical_insert_key()` slides the insert across the whole repeat
+and takes the smallest canonical key over the equivalent placements. Before
+this, 351 of 21,051 E. coli events (1.67%) were one event counted twice.
 
 ---
 
@@ -258,27 +268,50 @@ element.
 
 ---
 
-## Result: 15 species, 7 phyla, 69,986 events
+## Result: 18 species, 8 phyla, 74,067 events
 
-| species | phylum | events | usable |
-|---|---|---:|---:|
-| E. coli | Gammaproteobacteria | 21,051 | 72.8% |
-| K. pneumoniae | Gammaproteobacteria | 11,794 | 70.5% |
-| E. faecium | Firmicutes | 9,281 | 73.3% |
-| A. baumannii | Gammaproteobacteria | 7,459 | 83.7% |
-| S. aureus | Firmicutes | 6,375 | 55.0% |
-| M. tuberculosis | Actinobacteria | 3,399 | 37.5% |
-| S. enterica | Gammaproteobacteria | 2,944 | 56.2% |
-| E. faecalis | Firmicutes | 2,440 | 60.5% |
-| S. pneumoniae | Firmicutes | 1,944 | 49.1% |
-| B. subtilis | Firmicutes | 1,367 | — |
-| L. monocytogenes | Firmicutes | 1,084 | 22.4% |
-| N. gonorrhoeae | Betaproteobacteria | 755 | 9.9% |
-| T. pallidum | Spirochaetes | 54 | 1.9% |
-| C. trachomatis | Chlamydiae | 28 | 28.6% |
-| M. pneumoniae | Mollicutes | 11 | 0.0% |
+**Rebuilt 2026-09-24** after a code review found that the insert sequence was
+being sliced out of the long allele with a short-allele offset. See
+`docs/REVIEW_0262ce3.md`. Two things changed in this table: three more species
+landed (P. aeruginosa, H. pylori, C. jejuni), and **every species lost events**
+because the corrected key merges duplicates the old one split.
 
-P. aeruginosa, H. pylori, B. pertussis and C. jejuni are still running.
+| species | phylum | events | was | usable |
+|---|---|---:|---:|---:|
+| E. coli | Gammaproteobacteria | 20,734 | 21,051 | 77.5% |
+| K. pneumoniae | Gammaproteobacteria | 11,507 | 11,794 | 76.5% |
+| E. faecium | Firmicutes | 9,115 | 9,281 | 82.4% |
+| A. baumannii | Gammaproteobacteria | 7,248 | 7,459 | 88.1% |
+| S. aureus | Firmicutes | 6,235 | 6,375 | 57.9% |
+| P. aeruginosa | Gammaproteobacteria | 3,565 | — | 53.9% |
+| M. tuberculosis | Actinobacteria | 3,278 | 3,399 | 41.8% |
+| S. enterica | Gammaproteobacteria | 2,906 | 2,944 | 61.3% |
+| E. faecalis | Firmicutes | 2,401 | 2,440 | 65.1% |
+| S. pneumoniae | Firmicutes | 1,893 | 1,944 | 53.4% |
+| H. pylori | Campylobacterota | 1,645 | — | 22.8% |
+| B. subtilis | Firmicutes | 1,338 | 1,367 | 37.8% |
+| L. monocytogenes | Firmicutes | 1,040 | 1,084 | 27.4% |
+| N. gonorrhoeae | Betaproteobacteria | 716 | 755 | 9.9% |
+| C. jejuni | Campylobacterota | 355 | — | 23.7% |
+| T. pallidum | Spirochaetes | 54 | 54 | 1.9% |
+| C. trachomatis | Chlamydiae | 26 | 28 | 42.3% |
+| M. pneumoniae | Mollicutes | 11 | 11 | 18.2% |
+
+`usable` = S1 **and** mobility-positive, per event. B. pertussis is still
+running. `sa_k12` is the k=12 arm of the panel-size experiment and is excluded
+here to avoid double-counting S. aureus; it holds 4,661 events (was 4,701).
+
+Across the 18 species the correction removed **1,666 duplicate events (-2.2%)**
+and no species gained one, which is the direction a de-duplication fix must
+move. It also raised the mobility-positive rate from **71.5% to 78.9%**, because
+M2 now recognises the same element on opposite strands.
+
+**Every row records how its insert was obtained.** `insert_frame_status` is
+`coord` when Layer 2 wrote the long-allele coordinate directly, `repaired` when
+it was recovered by matching `inserted_md5`, and `unresolved` when it could not
+be verified — in which case no sequence is exported at all. In this rebuild:
+22,972 repaired, **0 unresolved**, and `md5(insert_seq) == insert_md5` for all
+192,386 rows.
 
 ### Genome count does not predict insertion polymorphism
 
@@ -300,7 +333,7 @@ That is a reportable Arm B false-positive rate needing no external truth.
 ## Files
 
 ```
-database/insertions.tsv            69,986 rows, 25 columns
+database/insertions.tsv            74,067 rows, 26 columns
 database/insertions_targets.fna    empty target sites
 database/insertions_inserts.fna    inserted sequences
 catalogue/<species>_{loci,events}.tsv + FASTAs

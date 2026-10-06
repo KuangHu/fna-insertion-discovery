@@ -209,6 +209,36 @@ def main():
             "generator_version_or_commit": "112_build_bags.py/%s" % args.version,
         })
 
+    # ---- SITE INDEPENDENCE -------------------------------------------------
+    # One target site carrying two different alleles produced TWO rows here,
+    # because a row is a database event and two events can share a target.
+    # They are two alleles of one locus, not two independent observations, and
+    # the ">=5 / >=10 independent sites" metric is defined on independent ones.
+    # Measured on the v3 corpus before this fix: 93,020 rows but 74,466
+    # distinct flanks, and the bag counts were overstated by 28-30%
+    #   bags >=5   1,118 -> 810      bags >=10   565 -> 394
+    # For a model whose input IS the flank, the duplicates are also actively
+    # harmful: identical input, different label.
+    #
+    # Deduped WITHIN a bag, not globally: the same site meeting two different
+    # CDS clusters is a real second observation of that pairing.
+    # Nothing is lost -- the collapsed alleles are recorded on the survivor.
+    by_flank = collections.OrderedDict()
+    for s in sites:
+        by_flank.setdefault((s["bag_id"], s["flank"]), []).append(s)
+    dedup = []
+    n_collapsed = 0
+    for (_bag, _fl), grp in by_flank.items():
+        rep = grp[0]
+        rep["n_alleles_at_site"] = len(grp)
+        rep["alt_insert_md5"] = ",".join(
+            sorted({g.get("insert_md5", ".") for g in grp[1:]})) or "."
+        n_collapsed += len(grp) - 1
+        dedup.append(rep)
+    log("  site independence: %d rows -> %d distinct (bag, flank); "
+        "%d collapsed" % (len(sites), len(dedup), n_collapsed))
+    sites = dedup
+
     bysize = collections.Counter(s["bag_id"] for s in sites)
     sites = [s for s in sites if bysize[s["bag_id"]] >= args.min_sites]
     bags = collections.defaultdict(list)
@@ -237,7 +267,11 @@ def main():
     log("BAGS   bag = CDS cluster ;  flank = %d bp empty site, %d|%d"
         % (2 * args.half, args.half, args.half))
     log("")
-    log("  sites emitted                 %7d" % len(sites))
+    log("  sites emitted                 %7d   (independent: one per bag+flank)"
+        % len(sites))
+    for k in (5, 10):
+        log("  bags with >=%-2d sites          %7d"
+            % (k, sum(1 for b, ss in bags.items() if len(ss) >= k)))
     log("  bags                          %7d" % len(bags))
     if bags:
         sz = sorted(len(v) for v in bags.values())

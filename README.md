@@ -121,13 +121,25 @@ mamba create -y -p $E/fnains_util  -c conda-forge -c bioconda seqkit nucdiff
 (`bio/prodigal/2.6.3`, `bio/hmmer/3.4`), so stage 50 can run its ORF and HMM
 screens before ISEScan is installed.
 
-### Full run under Snakemake
+### Full run
+
+**There is no Snakemake entry point.** The Snakefile described the original
+stage-10/40/50 pipeline, three of whose scripts were retired during the
+simplification work and one of whose inputs (`stage40/mmseqs_rep_seq.fasta`)
+no rule ever produced — it could not build a DAG on a fresh checkout. It is
+kept as `scripts/_retired/Snakefile.legacy`; see the note beside it.
+
+The pipeline that runs is the eleven stages in
+`result_note/01_fna_to_insertion_call.md`. Every stage is submitted through
+the generic wrapper, never from the login node:
 
 ```bash
-module load bio/snakemake/7.32.4
-snakemake -s Snakefile --configfile config/config.yaml -j 40 \
-    --config fna_list=/path/all_fna.txt run=run01
+sbatch --export=ALL,SCRIPT=scripts/100_event_dedup.py,ARGS="--recon 'l2/*/' --out dedup" \
+       --output=$SCRATCH/logs/dedup_%j.out slurm/analysis.sh
 ```
+
+Downloads are the one exception and run by hand on the transfer node
+(`tools/download_on_transfer_node.sh`), never under sbatch.
 
 Or on SLURM, per your existing conventions:
 

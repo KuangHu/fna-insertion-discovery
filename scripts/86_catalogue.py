@@ -41,6 +41,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import lib_insert                                                 # noqa: E402
 from lib.util import log                                          # noqa: E402
 
 
@@ -96,13 +97,19 @@ def main():
         p = os.path.join(d, "loci.tsv")
         if not os.path.exists(p):
             continue
+        # Run-scoped ids. `loci`, `aseq` and `carriers` are all dicts keyed on
+        # the locus id, and panel basenames repeat across runs, so without this
+        # one run's locus silently replaces the other's -- including its
+        # alleles, via the aseq.update().
+        pl = lib_insert.panel_label(d)
         for r in csv.DictReader(open(p), delimiter="\t"):
-            loci[r["locus_id"]] = r
-        aseq.update(read_alleles(os.path.join(d, "alleles.fna")))
+            loci[lib_insert.qualify(pl, r["locus_id"])] = r
+        for k, v in read_alleles(os.path.join(d, "alleles.fna")).items():
+            aseq[lib_insert.qualify(pl, k)] = v
         ap_ = os.path.join(d, "alleles.tsv")
         if os.path.exists(ap_):
             for r in csv.DictReader(open(ap_), delimiter="\t"):
-                carriers[r["locus_id"]][r["allele_id"]] = r.get("genomes", "")
+                carriers[lib_insert.qualify(pl, r["locus_id"])][r["allele_id"]] = r.get("genomes", "")
 
     ev_of, ev_n = {}, {}
     for r in csv.DictReader(open(args.events), delimiter="\t"):
@@ -120,8 +127,12 @@ def main():
     n_ev = sum(1 for l in dec if l in ev_of)
     n_mb = sum(1 for l in dec if l in mob)
     log("%d loci, %d decomposable" % (len(loci), len(dec)))
-    log("  event map  %d/%d  (%.1f%%)" % (n_ev, len(dec), 100.0 * n_ev / len(dec)))
-    log("  mobility   %d/%d  (%.1f%%)" % (n_mb, len(dec), 100.0 * n_mb / len(dec)))
+    # A species can legitimately decompose nothing -- M. pneumoniae produced 11
+    # events from 385 genomes -- so an empty `dec` is a real outcome, not an
+    # error, and must still write its (empty) outputs rather than divide by 0.
+    pct = lambda n: (100.0 * n / len(dec)) if dec else 0.0
+    log("  event map  %d/%d  (%.1f%%)" % (n_ev, len(dec), pct(n_ev)))
+    log("  mobility   %d/%d  (%.1f%%)" % (n_mb, len(dec), pct(n_mb)))
     if dec and n_ev < 0.5 * len(dec):
         log("FATAL: event map covers <50%% of loci; per-species counts would be "
             "inflated by panel redundancy")
@@ -129,7 +140,8 @@ def main():
 
     cols = ["event_id", "locus_id", "species", "panel", "n_loci_in_event",
             "target_seq", "target_len", "insertion_point_offset",
-            "insert_seq", "inserted_len", "insert_md5",
+            "insert_seq", "inserted_len", "insert_md5", "insert_frame_status",
+            "run",
             "junction_overlap_bp", "target_bases_lost", "decomposition_method",
             "placement_status", "placement_score_margin",
             "S1_structurally_clean",
@@ -144,7 +156,12 @@ def main():
         tgt = av.get(r["shortest_allele"], "")
         lng = av.get(r["longest_allele"], "")
         off, ilen = int(r["lcp_bp"]), int(r["inserted_len"])
-        ins = lng[off:off + ilen] if lng else ""
+        # `off` is the insertion point in the EMPTY target and is what
+        # insertion_point_offset must report. It is NOT a long-allele
+        # coordinate: slicing lng with it was wrong on 31.1% of tolerant-path
+        # loci. lib_insert resolves the long-allele frame and refuses to
+        # return a sequence it cannot verify against inserted_md5.
+        ins, frame = lib_insert.extract_insert(r, lng)
         ov = int(r.get("junction_ambiguity_bp") or 0)
         lost = int(r.get("target_bases_lost") or 0)
         s1 = (lost == 0 and ov <= args.max_overlap
@@ -152,12 +169,14 @@ def main():
         m = mob.get(lid, {})
         row = {
             "event_id": ev_of.get(lid, "."), "locus_id": lid,
-            "species": args.species, "panel": lid.rsplit(".", 1)[0],
+            "species": args.species, "panel": lid.split("|", 1)[0],
+            "run": lid.split("/", 1)[0],
             "n_loci_in_event": ev_n.get(ev_of.get(lid, ""), 1),
             "target_seq": tgt, "target_len": len(tgt),
             "insertion_point_offset": off,
             "insert_seq": ins, "inserted_len": ilen,
             "insert_md5": r.get("inserted_md5", "."),
+            "insert_frame_status": frame,
             "junction_overlap_bp": ov, "target_bases_lost": lost,
             "decomposition_method": r.get("decomposition_method", "."),
             "placement_status": r.get("placement_status", "."),

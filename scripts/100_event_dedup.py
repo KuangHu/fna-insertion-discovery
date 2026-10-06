@@ -39,6 +39,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import lib_insert                                                 # noqa: E402
 from lib.util import log                                          # noqa: E402
 
 COMP = str.maketrans("ACGTacgtNn", "TGCAtgcaNn")
@@ -112,13 +113,13 @@ def main():
         # 0.0% -- a SILENT NEGATIVE, the fifth this session. It was caught only
         # because 0.0% is implausible and got checked. Panel names are also
         # carried in locus_id, so they are cross-checked below.
-        ad = os.path.abspath(d).rstrip(os.sep)
-        base = os.path.basename(ad)
-        panel = (os.path.basename(os.path.dirname(ad))
-                 if base in ("recon", "l2", "allele_recon") else base)
+        # RUN-SCOPED. basename alone collides across runs (efaecium 200/200,
+        # spneumoniae 143/200 shared ids with the deep run) and the collision
+        # reaches locus_id, which every downstream join keys on.
+        panel = lib_insert.panel_label(d)
         aseq = read_alleles(os.path.join(d, "alleles.fna"))
         for r in csv.DictReader(open(p), delimiter="\t"):
-            lid = r["locus_id"]
+            lid = lib_insert.qualify(panel, r["locus_id"])
             if r["event_class"] not in ("insertion_target_retained", "replacement"):
                 n_skip["not_decomposed"] += 1
                 continue
@@ -130,13 +131,21 @@ def main():
             if ilen <= 0:
                 n_skip["no_insert"] += 1
                 continue
-            av = aseq.get(lid, {})
+            av = aseq.get(r["locus_id"], {})
             ls = av.get(r["longest_allele"], "")
             ss = av.get(r["shortest_allele"], "")
             if not ls or not ss:
                 n_skip["missing_allele"] += 1
                 continue
-            ins = ls[lcp:lcp + ilen]
+            # the insert comes from the LONG allele and needs a long-allele
+            # coordinate; the context window is centred on the insertion point
+            # in the SHORT allele and correctly uses lcp. The two frames are
+            # not the same number on the tolerant path.
+            i0, frame = lib_insert.locate_insert(r, ls)
+            if i0 < 0:
+                n_skip["insert_frame_unresolved"] += 1
+                continue
+            ins = ls[i0:i0 + ilen]
             lo = max(0, lcp - args.context)
             hi = min(len(ss), lcp + args.context)
             ctx = ss[lo:hi]
@@ -145,7 +154,14 @@ def main():
                 continue
             contributed.add(panel)
             rows.append({"panel": panel, "locus_id": lid,
-                         "insert_key": canon(ins), "context_key": canon(ctx),
+                         # canonical_insert_key, not canon(ins): a direct
+                         # repeat at the junction admits several equally valid
+                         # boundaries, the aligner's choice is not symmetric
+                         # under revcomp, and keying the raw slice therefore
+                         # split 351 of 21,051 E. coli events in two.
+                         "insert_key": lib_insert.canonical_insert_key(ls, i0, ilen),
+                         "context_key": canon(ctx),
+                         "frame": frame,
                          "inserted_len": ilen, "offset": lcp,
                          "overlap": int(r.get("junction_ambiguity_bp") or 0),
                          "lost": int(r.get("target_bases_lost") or 0),
@@ -157,9 +173,19 @@ def main():
     # One label for many dirs means the panel field is being derived wrongly,
     # which silently reports 0% cross-panel redundancy.
     n_lab = len(contributed)
-    n_with_rows = len({os.path.basename(os.path.abspath(d).rstrip(os.sep))
-                       for d in args.recon
-                       if os.path.exists(os.path.join(d, "loci.tsv"))})
+    # This comparison used to be computed and then never read -- dead code that
+    # looked like a guard. It now fires: if two recon dirs reduce to one label,
+    # their loci share ids and one run overwrites the other downstream.
+    seen_dirs = [d for d in expand(args.recon)
+                 if os.path.exists(os.path.join(d, "loci.tsv"))]
+    labels = [lib_insert.panel_label(d) for d in seen_dirs]
+    if len(set(labels)) < len(seen_dirs):
+        dup = [x for x in set(labels) if labels.count(x) > 1]
+        log("FATAL: %d recon dirs collapse to %d distinct panel labels; %d "
+            "label(s) are shared, e.g. %s. Locus ids would collide and one "
+            "run's loci would silently overwrite the other's."
+            % (len(seen_dirs), len(set(labels)), len(dup), dup[:3]))
+        return 2
     if n_panels > 1 and n_lab < 2:
         log("FATAL: %d recon dirs produced only %d distinct panel label(s) -- "
             "the panel field is mis-derived and cross-panel redundancy will "
@@ -183,6 +209,7 @@ def main():
 
     cols = ["event_id", "panel", "locus_id", "insert_key", "context_key",
             "inserted_len", "offset", "overlap", "lost", "method", "placement",
+            "frame",
             "event_n_loci", "event_n_panels"]
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     with open(args.out + "_loci_to_event.tsv", "w") as fh:
