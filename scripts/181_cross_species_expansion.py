@@ -26,10 +26,11 @@ not guarantee THIS locus is intact. So each hit is judged on its own:
   contig edge is recorded as truncated and excluded from empty-site work rather
   than being treated as an absence.
 
-INDEPENDENCE. Backgrounds are counted per (species, genome, locus), and the
-same assembly re-deposited under two accessions, or two assemblies of one
-BioSample, are not two backgrounds. Genome identity is reported so the caller
-can collapse on BioSample; this script does not assume accession == sample.
+OUTPUT UNIT. Every passing alignment is retained, including repeated and
+overlapping hits. These rows are not independent backgrounds. Genome identity
+is reported, but BioSample and homologous-host-locus deduplication are NOT done.
+All intervals/flanks are in target-contig orientation; strand is query-relative.
+tsd_len is an unvalidated boundary-adjacent sequence match, not confirmed TSD.
 
 CALIBRATION DOES NOT TRANSFER. Thresholds tuned on within-species comparison do
 not apply to a cross-species evidence set -- identity between two species'
@@ -45,7 +46,7 @@ import subprocess
 import sys
 import tempfile
 
-csv.field_size_limit(sys.maxsize)
+csv.field_size_limit(min(sys.maxsize, 2147483647))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lib_insert as LI
 from lib.util import log                                          # noqa: E402
@@ -118,12 +119,14 @@ def main():
     batches = [genomes[i:i + a.batch] for i in range(0, len(genomes), a.batch)]
 
     st = collections.Counter()
-    seen = set()
+    os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     out = open(a.out + "_hits.tsv", "w")
     cols = ["cds_cluster", "source_event", "source_species", "target_species",
             "genome", "contig", "elem_start", "elem_end", "elem_len",
             "pct_ident", "q_cov", "cross_species", "flank_complete",
-            "dist_left", "dist_right", "left_flank", "right_flank", "tsd_len"]
+            "dist_left", "dist_right", "left_flank", "right_flank", "tsd_len",
+            "strand", "query_start", "query_end", "query_len", "target_len",
+            "coordinate_system", "boundary_evidence"]
     out.write("\t".join(cols) + "\n")
 
     for bi, batch in enumerate(batches):
@@ -143,7 +146,7 @@ def main():
                           stdout=open(paf, "w"),
                           stderr=subprocess.DEVNULL).returncode != 0:
             st["minimap2_fail"] += 1
-            continue
+            raise RuntimeError("minimap2 failed for batch %d" % bi)
         for line in open(paf):
             f = line.rstrip("\n").split("\t")
             if len(f) < 12:
@@ -177,11 +180,8 @@ def main():
             while n < 40 and ts - 1 - n >= 0 and te - 1 - n >= 0 \
                     and seq[ts - 1 - n] == seq[te - 1 - n]:
                 n += 1
-            key = (cls, carrier, contig, ts // 50)
-            if key in seen:
-                st["dup_locus"] += 1
-                continue
-            seen.add(key)
+            # Preserve every passing alignment. Binning start coordinates loses
+            # nearby loci and boundary alternatives before they can be audited.
             xs = "yes" if ssp != a.target_species else "no"
             st["EMITTED"] += 1
             st["cross" if xs == "yes" else "same"] += 1
@@ -191,7 +191,9 @@ def main():
                 cls, dbid, ssp, a.target_species, carrier, contig, ts, te,
                 te - ts, "%.4f" % (nmatch / blen),
                 "%.4f" % ((qe - qs) / max(1, qlen)), xs,
-                "yes" if complete else "no", dl, dr, lf, rf, n]) + "\n")
+                "yes" if complete else "no", dl, dr, lf, rf, n,
+                f[4], qs, qe, qlen, len(seq), "0-based-half-open",
+                "alignment-only"]) + "\n")
         log("  batch %d/%d  emitted %d" % (bi + 1, len(batches), st["EMITTED"]))
     out.close()
 

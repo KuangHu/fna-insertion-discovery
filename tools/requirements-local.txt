@@ -1,0 +1,2 @@
+# Runtime dependency for the local workflow and sequence audits
+biopython>=1.86,<2

@@ -3,6 +3,13 @@
 Reference-free, annotation-free discovery of insertion elements by comparing
 assembled genomes. No SRA download, no read alignment, no BAM.
 
+**Supported discovery route: Arm B → Layer 2.** Arm B discovers structural
+allele candidates; Layer 2 reconstructs the actual alleles and reports placement
+and junction ambiguity. Arm A supplies complementary multicopy evidence.
+Pangraph and independent MUMmer alignments are supplementary checks.
+The runnable entry point is `tools/discovery_pipeline.py`; see
+[workflow inputs, outputs and commands](docs/DISCOVERY_PIPELINE.md).
+
 **Scope: insertion elements under 5 kb.** Anything larger is out of the primary
 catalogue by `armA.max_len` / `armB.max_insert` (both 5000) — but in Arm B it is
 **parked, not discarded.** An IS110 nested inside a larger insertion is reported
@@ -19,28 +26,22 @@ them for the 1–5 kb repeated component inside the cargo, is not yet written.
 > items, and the operational gotchas. Re-sync it with
 > `./tools/backup_memory.sh` after any session that changes memory.
 
-Two arms, because they have complementary blind spots:
+The primary route and its complementary evidence:
 
-```
-                         FNA collection
-                               │
-              ┌────────────────┴────────────────┐
-              ▼                                 ▼
-   ARM A  within-genome                ARM B  between-genome
-   multi-copy repeats                  empty vs filled allele
-              │                                 │
-   copy1 AAAA─[═══]─CCCC              A: LEFT ─────────── RIGHT
-   copy2 GGGT─[═══]─TTAT              B: LEFT ─ INSERT ── RIGHT
-   copy3 CTAC─[═══]─AGGG              C: LEFT ─ INSERT ── RIGHT
-         ↑ divergent flanks ↑         D: LEFT ─────────── RIGHT
-              │                                 │
-              └────────────────┬────────────────┘
-                               ▼
-                    universal element catalogue
-                               │
-                               ▼
-                    ANNOTATION LAST  (stage 50)
-              IS110 / IS30 / IS903 / prophage / unknown
+```text
+Homologous assembly panel
+          |
+          v
+Arm B: structural allele candidates
+          |
+          v
+Layer 2: original allele sequences + placement/junction ambiguity
+          |
+          v
+Candidate catalogue -> annotation and downstream analysis
+
+Arm A: complementary multicopy evidence
+Pangraph + MUMmer: supplementary graph/alignment evidence
 ```
 
 **Annotation runs last, never first.** Nothing upstream of stage 50 knows what a
@@ -57,14 +58,17 @@ find what the library already contains.
 | 10 | `10_skani_cluster.py` | ANI clusters, so compared loci are homologous | **skani** |
 | 20 | `20_armA_multicopy.py` | **Arm A**: multi-copy + boundary voting | minimap2 |
 | 30 | `30_armB_graph.py` | **Arm B**: graph bubbles → empty/filled alleles | **minigraph + gfatools** |
-| 30b | `30b_armB_pangraph.py` | Arm B, alternative engine | **PanGraph 1.4** |
-| 31 | `31_armB_refine.py` | nucleotide junctions, insert sequence, **TSD** | **svim-asm** / nucdiff |
-| 40 | `40_merge_catalog.py` | union both arms, dedup, presence/absence | mmseqs2 |
+| supplementary | `tools/discovery_pipeline.py --supplement` | graph/alignment cross-checks | **Pangraph + MUMmer** |
+| Layer 2 | `70_allele_reconstructor.py` | reconstruct actual alleles; report ambiguity | minimap2 + Biopython |
+| catalogue | `86_catalogue.py` | reconstructed candidate catalogue | Layer 2 output |
 | 50 | `50_annotate.py` | rRNA screen, transposase HMM, IS family | barrnap, prodigal+HMMER, **ISEScan** |
 | 60 | `60_benchmark_armA_vs_isescan.py` | is Arm A a real discovery engine? | ISEScan |
 | 61 | `61_benchmark_vs_readgold.py` | FNA-only vs your read-validated junctions | — |
 
-## Quick start
+## Historical cluster setup
+
+The following commands describe the earlier cluster installation; for the current
+local workflow use [DISCOVERY_PIPELINE.md](docs/DISCOVERY_PIPELINE.md).
 
 ### What already works, with no conda solve
 

@@ -29,6 +29,7 @@ Outputs (prefix given by --out):
 """
 import argparse
 import os
+import re
 import statistics
 import sys
 from collections import defaultdict
@@ -171,6 +172,52 @@ def get_context(fa, copies, m, orient, pad):
     return seq, s - lo, e - lo
 
 
+def project_target_boundary(r, boundary):
+    """Project a target inter-base boundary through a forward PAF cg CIGAR.
+
+    Return None for absent/malformed CIGAR, outside alignment, deletion
+    interiors or ambiguous insertion junctions. Never extrapolate through an
+    unaligned end. Reverse hits are rejected earlier after context orientation.
+    """
+    cigar = r.tags.get("cg", "")
+    ops = re.findall(r"(\d+)([MID=X])", cigar)
+    if (r.strand != "+" or not ops
+            or "".join(n + op for n, op in ops) != cigar
+            or not r.ts <= boundary <= r.te):
+        return None
+    t, q = r.ts, r.qs
+    candidates = set()
+    for count, op in ops:
+        n = int(count)
+        if n <= 0:
+            return None
+        if op in "M=X":
+            if t <= boundary <= t + n:
+                candidates.add(q + boundary - t)
+            t += n
+            q += n
+        elif op == "I":
+            if boundary == t:
+                candidates.update((q, q + n))
+            q += n
+        elif op == "D":
+            if t < boundary < t + n:
+                return None
+            if boundary in (t, t + n):
+                candidates.add(q)
+            t += n
+    if t != r.te or q != r.qe or len(candidates) != 1:
+        return None
+    return candidates.pop()
+
+
+def resolved_copy(copies, refined, member):
+    """One coordinate source for both representative and per-copy exports."""
+    contig, start, end = copies[member]
+    start, end = refined.get(member, (start, end))
+    return contig, start, end
+
+
 def refine_boundaries(ctxs, rep_i, tmp, minimap2, threads, min_cov=0.5):
     """Vote the element boundary in ONE common frame: the representative copy.
 
@@ -190,7 +237,8 @@ def refine_boundaries(ctxs, rep_i, tmp, minimap2, threads, min_cov=0.5):
         for i, (nm, sq, _, _) in enumerate(ctxs):
             if i != rep_i:
                 write_fasta(fh, "Q%d" % i, sq)
-    stats = {"votes_L": [], "votes_R": [], "n_votes": 0, "n_strand_conflict": 0}
+    stats = {"votes_L": [], "votes_R": [], "n_votes": 0, "n_strand_conflict": 0,
+             "refined_indices": set(), "projection_unresolved": 0}
     anchors = {rep_i: (rL, rR)}
     hits = {}
     if os.path.getsize(qry_fa) > 0:
@@ -224,10 +272,23 @@ def refine_boundaries(ctxs, rep_i, tmp, minimap2, threads, min_cov=0.5):
         stats["disp_L"] = stats["disp_R"] = float("nan")
     stats["cons_L"], stats["cons_R"] = cL, cR
     stats["elem_len_consensus"] = int(cR - cL)
-    anchors[rep_i] = (int(cL), int(cR))
+    # Retain the existing integer conversion of median boundaries, but do it
+    # once in the representative frame before any coordinate projection.
+    bL, bR = int(cL), int(cR)
+    if stats["n_votes"] and 0 <= bL < bR <= len(rep_seq):
+        anchors[rep_i] = (bL, bR)
+        stats["refined_indices"].add(rep_i)
     # map the consensus rep-frame boundary back into each copy's own frame
     for i, (cov, r) in hits.items():
-        anchors[i] = (int(r.qs + (cL - r.ts)), int(r.qs + (cR - r.ts)))
+        qL = project_target_boundary(r, bL)
+        qR = project_target_boundary(r, bR)
+        if qL is not None and qR is not None and 0 <= qL < qR <= len(ctxs[i][1]):
+            anchors[i] = (qL, qR)
+            stats["refined_indices"].add(i)
+        else:
+            # Keep the whole nominal interval rather than mix one resolved
+            # end with one unaligned/ambiguous end. Mark as unrefined below.
+            stats["projection_unresolved"] += 1
     for i in range(len(ctxs)):                      # unaligned copies keep nominal
         anchors.setdefault(i, (ctxs[i][2], ctxs[i][3]))
     return anchors, stats
@@ -445,6 +506,8 @@ def main():
         # refined element coordinates, mapped back to genome space
         refined = {}
         for i, m in enumerate(prof_members):
+            if i not in bstat["refined_indices"]:
+                continue
             aL, aR = anchors[i]
             contig, s0, e0 = copies[m]
             clen = fa.length(contig)
@@ -501,9 +564,11 @@ def main():
             flags.append("profiled_%d_of_%d_copies" % (len(prof_members), len(members)))
         if conflict:
             flags.append("orientation_conflict")
+        if bstat["projection_unresolved"]:
+            flags.append("boundary_projection_unresolved_%d" % bstat["projection_unresolved"])
 
         rep = members[0]
-        rcontig, rs, re_ = copies[rep]
+        rcontig, rs, re_ = resolved_copy(copies, refined, rep)
         rep_seq = fa.fetch(rcontig, rs, re_)
         if orient[rep] == -1:
             rep_seq = revcomp(rep_seq)
@@ -532,9 +597,7 @@ def main():
 
         # per-copy site rows -- this is the multi-site bag for downstream modelling
         for m in members:
-            contig, s, e = copies[m]
-            if m in refined:
-                s, e = refined[m]
+            contig, s, e = resolved_copy(copies, refined, m)
             clen = fa.length(contig)
             elem = fa.fetch(contig, s, e)
             lf = fa.fetch(contig, max(0, s - args.flank), s)
