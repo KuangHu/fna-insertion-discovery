@@ -129,13 +129,19 @@ def main():
         p = os.path.join(d, "loci.tsv")
         if not os.path.exists(p):
             continue
+        # Run-scoped ids. `loci`, `aseq` and `carriers` are all dicts keyed on
+        # the locus id, and panel basenames repeat across runs, so without this
+        # one run's locus silently replaces the other's -- including its
+        # alleles, via the aseq.update().
+        pl = lib_insert.panel_label(d)
         for r in csv.DictReader(open(p), delimiter="\t"):
-            loci[r["locus_id"]] = r
-        aseq.update(read_alleles(os.path.join(d, "alleles.fna")))
+            loci[lib_insert.qualify(pl, r["locus_id"])] = r
+        for k, v in read_alleles(os.path.join(d, "alleles.fna")).items():
+            aseq[lib_insert.qualify(pl, k)] = v
         p = os.path.join(d, "alleles.tsv")
         if os.path.exists(p):
             for r in csv.DictReader(open(p), delimiter="\t"):
-                carriers[r["locus_id"]][r["allele_id"]] = \
+                carriers[lib_insert.qualify(pl, r["locus_id"])][r["allele_id"]] = \
                     [g for g in r.get("genomes", "").split(",") if g]
     log("%d Layer-2 loci" % len(loci))
 

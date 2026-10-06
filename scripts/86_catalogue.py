@@ -97,13 +97,19 @@ def main():
         p = os.path.join(d, "loci.tsv")
         if not os.path.exists(p):
             continue
+        # Run-scoped ids. `loci`, `aseq` and `carriers` are all dicts keyed on
+        # the locus id, and panel basenames repeat across runs, so without this
+        # one run's locus silently replaces the other's -- including its
+        # alleles, via the aseq.update().
+        pl = lib_insert.panel_label(d)
         for r in csv.DictReader(open(p), delimiter="\t"):
-            loci[r["locus_id"]] = r
-        aseq.update(read_alleles(os.path.join(d, "alleles.fna")))
+            loci[lib_insert.qualify(pl, r["locus_id"])] = r
+        for k, v in read_alleles(os.path.join(d, "alleles.fna")).items():
+            aseq[lib_insert.qualify(pl, k)] = v
         ap_ = os.path.join(d, "alleles.tsv")
         if os.path.exists(ap_):
             for r in csv.DictReader(open(ap_), delimiter="\t"):
-                carriers[r["locus_id"]][r["allele_id"]] = r.get("genomes", "")
+                carriers[lib_insert.qualify(pl, r["locus_id"])][r["allele_id"]] = r.get("genomes", "")
 
     ev_of, ev_n = {}, {}
     for r in csv.DictReader(open(args.events), delimiter="\t"):
@@ -135,6 +141,7 @@ def main():
     cols = ["event_id", "locus_id", "species", "panel", "n_loci_in_event",
             "target_seq", "target_len", "insertion_point_offset",
             "insert_seq", "inserted_len", "insert_md5", "insert_frame_status",
+            "run",
             "junction_overlap_bp", "target_bases_lost", "decomposition_method",
             "placement_status", "placement_score_margin",
             "S1_structurally_clean",
@@ -162,7 +169,8 @@ def main():
         m = mob.get(lid, {})
         row = {
             "event_id": ev_of.get(lid, "."), "locus_id": lid,
-            "species": args.species, "panel": lid.rsplit(".", 1)[0],
+            "species": args.species, "panel": lid.split("|", 1)[0],
+            "run": lid.split("/", 1)[0],
             "n_loci_in_event": ev_n.get(ev_of.get(lid, ""), 1),
             "target_seq": tgt, "target_len": len(tgt),
             "insertion_point_offset": off,

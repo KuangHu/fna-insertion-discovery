@@ -93,6 +93,42 @@ def canonical_insert_key(long_seq, start, ilen):
     return min(canon_key(long_seq[s:s + ilen]) for s in range(lo, hi + 1))
 
 
+def panel_label(recon_dir):
+    """A panel label that is unique ACROSS RUNS, as <run>/<panel>.
+
+    WHY -- found 2026-09-25 while preparing the first cross-run merge.
+
+    A panel dir is named <seed_accession>_k<k>, so the same seed sampled at the
+    same k in two different runs produces the SAME basename. Measured:
+
+        efaecium      200 of 200 first-round panel ids also exist in the deep run
+        spneumoniae   143 of 200
+
+    `locus_id` is <panel>.B%06d, so those collisions propagate into the locus
+    ids themselves, and 99_/86_ build `loci` as a dict keyed on locus_id -- one
+    run's locus silently overwrites the other's. `catalogue_deep/spneumoniae`
+    was produced from exactly that merge and is affected.
+
+    The run is the grandparent (.../full_efaecium/l2/<panel>), so it separates
+    full_ from deep_ without needing a flag.
+    """
+    ad = os.path.abspath(recon_dir).rstrip(os.sep)
+    base = os.path.basename(ad)
+    parent = os.path.dirname(ad)
+    if base in ("recon", "l2", "allele_recon"):
+        base, parent = os.path.basename(parent), os.path.dirname(parent)
+    run = os.path.basename(parent)
+    if run in ("l2", "recon", "allele_recon"):
+        run = os.path.basename(os.path.dirname(parent))
+    return "%s/%s" % (run, base) if run else base
+
+
+def qualify(panel, locus_id):
+    """Run-scoped locus id. Every consumer must apply this identically or the
+    joins between dedup, the M join and the catalogue will silently miss."""
+    return "%s|%s" % (panel, locus_id)
+
+
 def read_alleles(path):
     """Parse an alleles.fna written by 70_: >LOCUS|ALLELE|len=..|n=.."""
     out, cur = collections.defaultdict(dict), None
