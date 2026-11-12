@@ -18,9 +18,22 @@ that (33 kb and 36 kb bubbles carrying an IS110 transposase). So oversized
 bubbles go to `armB_large_events.tsv` + `armB_large_inserts.fna` with ids
 `<cluster>.L%06d`, and `armB_events.tsv` carries a `parent_large_event_id`
 column to link back. On the 3-genome test this retains 42 bubbles (median 15 kb,
-range 5.5–66 kb) that the size gate used to throw away. Stage 32, which mines
-them for the 1–5 kb repeated component inside the cargo, is not yet written.
+range 5.5–66 kb) that the size gate used to throw away. Stage 32
+(`32_nested_search.py`) mines them for nested <5 kb insertions. It has been
+run on E. coli and K. pneumoniae (2026-09-09, `$W/stage32/`, 26 + 53 rows);
+those results have not yet been reviewed or folded into the catalogue.
 
+> **Status (2026-11-11).** The current product of this module is
+> `database_v3/insertions.tsv`: 105,048 events, 18 species. It was built from
+> `catalogue_v3/`, which also holds `sa_k12`. How v3 was built, and its
+> limits, are in [docs/CATALOGUE_V3_PROVENANCE.md](docs/CATALOGUE_V3_PROVENANCE.md).
+> Which script belongs to which module: [docs/MODULES.md](docs/MODULES.md).
+> The census-scale pipeline that produced it is the 11 stages in
+> `result_note/01_fna_to_insertion_call.md`, run stage by stage under SLURM.
+> `tools/discovery_pipeline.py` runs the same Arm B → Layer 2 route on ONE
+> panel locally. It has been validated only on the R6/TIGR4 pair, and it has
+> not been compared with the census runs.
+>
 > **Session continuity:** `docs/MEMORY_BACKUP.md` carries the working state
 > (including the numbers below that this README now predates), the open
 > items, and the operational gotchas. Re-sync it with
@@ -55,11 +68,13 @@ find what the library already contains.
 | stage | script | what it does | tool |
 |---|---|---|---|
 | 00 | (in stage 10) | assembly QC: N50, contigs, N fraction | — |
-| 10 | `10_skani_cluster.py` | ANI clusters, so compared loci are homologous | **skani** |
+| 10 | `_retired/10_skani_cluster.py` | ANI clusters. **Retired**: replaced at census scale by sharded `skani dist` + `98_species_ani_calibration.py` + clique panels from `91_seed_panel_sampler.py` | **skani** |
 | 20 | `20_armA_multicopy.py` | **Arm A**: multi-copy + boundary voting | minimap2 |
 | 30 | `30_armB_graph.py` | **Arm B**: graph bubbles → empty/filled alleles | **minigraph + gfatools** |
 | supplementary | `tools/discovery_pipeline.py --supplement` | graph/alignment cross-checks | **Pangraph + MUMmer** |
 | Layer 2 | `70_allele_reconstructor.py` | reconstruct actual alleles; report ambiguity | minimap2 + Biopython |
+| dedup | `100_event_dedup.py` | collapse panel redundancy into distinct events (mandatory before any count) | — |
+| M join | `99_mobility_join.py` | mobility evidence (M1/M2) onto each event | — |
 | catalogue | `86_catalogue.py` | reconstructed candidate catalogue | Layer 2 output |
 | 50 | `50_annotate.py` | rRNA screen, transposase HMM, IS family | barrnap, prodigal+HMMER, **ISEScan** |
 | 60 | `60_benchmark_armA_vs_isescan.py` | is Arm A a real discovery engine? | ISEScan |
@@ -68,7 +83,8 @@ find what the library already contains.
 ## Historical cluster setup
 
 The following commands describe the earlier cluster installation; for the current
-local workflow use [DISCOVERY_PIPELINE.md](docs/DISCOVERY_PIPELINE.md).
+local workflow use [DISCOVERY_PIPELINE.md](docs/DISCOVERY_PIPELINE.md). Stages 10,
+30b and 40 below have since been retired to `scripts/_retired/`.
 
 ### What already works, with no conda solve
 
@@ -226,6 +242,14 @@ and its dispersion is reported in bp. On real *E. coli* IS this gives
 ## Validated behaviour
 
 Everything below was actually run on staged *E. coli* assemblies, not projected.
+These are the original August 2026 validation runs. Two figures have been
+superseded by later reruns of the same tests. The 3-genome Arm B test
+(`$W/armB_test/stage30/mini3`) now gives **141 events, 33 with a TSD**, not
+183 / 43. The stage 40 union (`$W/stage40_v2`) now gives **272 elements: 19
+BOTH_ARMS, 198 ARM_A_MULTICOPY, 55 ARM_B_EMPTY_FILLED**. The 310 / 21 / 202 /
+87 below are from the older `stage40_test`. Stage 40 itself is retired. The
+census-scale results are in `result_note/01` and
+`docs/CATALOGUE_V3_PROVENANCE.md`.
 
 ### Arm A at scale -- 200 genomes, `--max-len 5000`, 0 failures
 
@@ -439,7 +463,7 @@ Layer 2 change.
 | **2** | exact decomposition | **LOCKED** |
 | **2** | tolerant decomposition | **LOCKED** |
 | **2** | placement-ambiguity reporting | **LOCKED** |
-| **3** | polarity / ancestral-allele assignment | **NOT YET ASSIGNED** |
+| **3** | polarity / ancestral-allele assignment | **CLOSED 2026-08-29** (see below; scripts in `scripts/_retired/`). The census catalogue carries **no polarity** |
 | — | nucleotide-junction certification | **NOT CLAIMED** |
 
 **Layer 2 claims:** given a candidate locus and a cluster of homologous

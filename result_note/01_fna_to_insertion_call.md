@@ -1,5 +1,13 @@
 # Workflow 1 — from `.fna` to an insertion call
 
+> **Status (2026-11-11).** The result table below is **v2**: 74,067 events,
+> built 2026-09-24, in `database_v2/`. The current product is **v3**:
+> `database_v3/insertions.tsv`, 105,048 events. v3 adds the finished part of a
+> deeper panel run for five species (E. coli, K. pneumoniae, S. aureus k24,
+> E. faecium, S. pneumoniae). That deeper part is not a random sample. See
+> `docs/CATALOGUE_V3_PROVENANCE.md`. The `database/` directory itself is the
+> pre-review version (69,986 rows) and is obsolete.
+
 **Input:** assembled genome FASTA. Nothing else. No reads, no annotation, no IS
 library at any stage.
 
@@ -333,9 +341,11 @@ That is a reportable Arm B false-positive rate needing no external truth.
 ## Files
 
 ```
-database/insertions.tsv            74,067 rows, 26 columns
-database/insertions_targets.fna    empty target sites
-database/insertions_inserts.fna    inserted sequences
+database_v2/insertions.tsv         74,067 rows, 26 columns (this table; v2)
+database_v2/insertions_targets.fna empty target sites
+database_v2/insertions_inserts.fna inserted sequences
+database_v3/                       current: 105,048 rows (see docs/CATALOGUE_V3_PROVENANCE.md)
+database/                          obsolete pre-review version, 69,986 rows
 catalogue/<species>_{loci,events}.tsv + FASTAs
 full_<species>/                    panels, Arm A/B, Layer 2, dedup, mobility
 ```
