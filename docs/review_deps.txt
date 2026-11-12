@@ -104,3 +104,17 @@ tools/compare_pangraph_mummer.py
 tools/verify_refactored_local.py
 tools/local_debug.py
 tools/local_armB_layer2.py
+
+[M2 corpus] m2-corpus
+# M2 模块；SPEC 项 M2-C（用户 2026-11-12 决定）；profile review-hard
+CLAUDE.md
+scripts/250_build_corpus.py
+config/corpus_sources.tsv
+tests/test_build_corpus.py
+tools/download_staging.sh
+slurm/corpus/M2_corpus.sh
+docs/CORPUS.md
+docs/MODULES.md
+# 只读参照（项 0 的 V0 读取同一份语料表；不审）
+scripts/248_trusted_manifest.py
+slurm/isref_all/V0_prep.sh

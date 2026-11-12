@@ -1,0 +1,20 @@
+species	species_taxid	organism	source_dir	expected_n
+abaum	470	Acinetobacter baumannii	/global/scratch/users/kh36969/fna_ins_discovery/abaumannii/genomes	1956
+bpertussis	520	Bordetella pertussis	/global/scratch/users/kh36969/fna_ins_discovery/genomes_bpertussis	1204
+bsubtilis	1423	Bacillus subtilis	/global/scratch/users/kh36969/fna_ins_discovery/genomes_bsubtilis	591
+cjejuni	197	Campylobacter jejuni	/global/scratch/users/kh36969/fna_ins_discovery/genomes_cjejuni	796
+ctrachomatis	813	Chlamydia trachomatis	/global/scratch/users/kh36969/fna_ins_discovery/genomes_ctrachomatis	317
+ecoli	562	Escherichia coli	/global/scratch/users/kh36969/cross_ref_is_runs/results/escherichia_coli/_ncbi_symlinks	13027
+efaecalis	1351	Enterococcus faecalis	/global/scratch/users/kh36969/fna_ins_discovery/genomes_efaecalis	816
+efaecium	1352	Enterococcus faecium	/global/scratch/users/kh36969/fna_ins_discovery/genomes_efaecium	1038
+hpylori	210	Helicobacter pylori	/global/scratch/users/kh36969/fna_ins_discovery/genomes_hpylori	1636
+kpneumoniae	573	Klebsiella pneumoniae	/global/scratch/users/kh36969/fna_ins_discovery/genomes/kpneumoniae	5916
+lmonocytogenes	1639	Listeria monocytogenes	/global/scratch/users/kh36969/fna_ins_discovery/genomes_lmonocytogenes	887
+mpneumoniae	2104	Mycoplasmoides pneumoniae	/global/scratch/users/kh36969/fna_ins_discovery/genomes_mpneumoniae	385
+mtuberculosis	1773	Mycobacterium tuberculosis	/global/scratch/users/kh36969/fna_ins_discovery/genomes_mtuberculosis	895
+ngonorrhoeae	485	Neisseria gonorrhoeae	/global/scratch/users/kh36969/fna_ins_discovery/genomes_ngonorrhoeae	333
+paeruginosa	287	Pseudomonas aeruginosa	/global/scratch/users/kh36969/fna_ins_discovery/genomes_paeruginosa	2078
+saureus	1280	Staphylococcus aureus	/global/scratch/users/kh36969/fna_ins_discovery/genomes_saureus	4209
+senterica	28901	Salmonella enterica	/global/scratch/users/kh36969/fna_ins_discovery/genomes_senterica	3490
+spneumoniae	1313	Streptococcus pneumoniae	/global/scratch/users/kh36969/fna_ins_discovery/genomes_spneumoniae	382
+tpallidum	160	Treponema pallidum	/global/scratch/users/kh36969/fna_ins_discovery/genomes_tpallidum	585

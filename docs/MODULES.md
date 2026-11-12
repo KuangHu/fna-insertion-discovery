@@ -8,7 +8,7 @@
 |---|---|---|---|
 | M0 基础设施 | 共用库、环境、审查循环 | `scripts/lib/`、`lib_insert.py`、`tools/`、`env/`、`docs/` | 在用 |
 | M1 结构发现（Layer 1–4） | 不用转座酶模型，从组装比较中发现插入等位、重建、定极性 | 20–99 中的发现、基准与审计脚本，`_retired/` 中的 Layer 3 | Layer 2 锁定，Layer 3 关闭 |
-| M2 语料与物种扩展 | 选物种、选基因组、建 panel、下载、建语料 | 90、91、95、98、102、140–143、180、191、202 | 语料 `corpus_v2`：40,541 个基因组 |
+| M2 语料与物种扩展 | 选物种、选基因组、建 panel、下载、建语料 | 90、91、95、98、102、140–143、180、191、202、250 | 语料 `corpus_v2`：40,541 行，实为 35,237 个不同组装（E. coli 的 GCA/GCF 重复），见 `docs/CORPUS.md`；SPEC 项 M2-C 已审查（4 轮），全量重复映射（`slurm/corpus/M2_corpus.sh`）待运行 |
 | M3 事件与插入数据库 | 跨 panel 去重成事件，推断空位点，导出 v1 记录格式 | 100、101、103–110、197–201、203–218 | Insertion DB v1 已导出 |
 | M4 蛋白 / CDS 与 bag | 插入序列的 CDS、Pfam、按最长 ORF 聚成 bag，扩展 bag 位点，蛋白上下文导出 | 111–113、132–135、150–163、190、192–196、220–232 | bag 规则已确认（最长 ORF，不改） |
 | M5 全语料拷贝扫描（isref） | 用 bag 代表序列 blastn 扫全语料，得到拷贝与位点 | 233–242、248、249 | **进行中**（SPEC 项 0 完成，项 1 待做） |
@@ -65,8 +65,10 @@
 | `102_rarefaction.py` | 增加基因组是否还有收益（回溯稀疏化） |
 | `140`–`143` | SPIRE MAG：可用量、可挖掘物种、下载列表、ANI 分布形状 |
 | `180_queue_species_download.py` | 单物种下载队列（只取 Complete / Chromosome） |
-| `191_make_corpus.py` | 拼接语料并记录 contig 长度 |
-| `202_build_genome_manifest.py` | 已验证的 accession → 基因组路径映射 |
+| `191_make_corpus.py` | 拼接语料并记录 contig 长度（M4 蛋白上下文用；无法打开的基因组只警告后跳过） |
+| `202_build_genome_manifest.py` | 已验证的 accession → 基因组路径映射（M3 的 `insertions_all/genome_map.tsv`；不是 M5 的语料表） |
+| `250_build_corpus.py` | SPEC 项 M2-C：按 `config/corpus_sources.tsv` 重建 `corpus_v2.tsv`（逐字节相同）、GCA/GCF 重复映射、对照 GenBank 的缺口报告 |
+| `tools/download_staging.sh` | 把缺口清单下载到暂存目录（md5 校验；不进入语料） |
 
 ## M3 事件与插入数据库
 
