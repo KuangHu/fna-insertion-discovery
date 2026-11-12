@@ -80,3 +80,17 @@ slurm/isref_v1/loci.sh
 tests/test_collapse_sites.py
 tests/test_query_orientation.py
 tests/test_query_pair_containment.py
+
+[M1 Arm B] m1-armb
+# M1 模块；模型 gpt-6-astra（profile review-astra，用户 2026-11-11 第十次决定）
+scripts/30_armB_graph.py
+scripts/lib/tsd.py
+scripts/lib/util.py
+scripts/lib/fasta.py
+tools/discovery_pipeline.py
+tools/discovery_evidence.py
+tests/test_armB_calls.py
+tests/test_discovery_pipeline.py
+scripts/70_allele_reconstructor.py
+docs/DISCOVERY_PIPELINE.md
+docs/MODULES.md

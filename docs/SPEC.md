@@ -8,6 +8,7 @@
 
 ## 修订记录
 
+- r6.3（用户 2026-11-11 第十次决定）：新增**项 M1-B：Arm B 结构等位发现**（M1 模块，见 `docs/MODULES.md`），用 gpt-6-astra 审查后按意见修改。只新增此项，项 0–3 不变。
 - r6.2（用户 2026-11-11 第九次决定：先修改再重跑，未送审）：V0-7 新增"逐次记录"。起因：job 27788052 的失败记录中出错基因组列表为空（父进程达到上限即退出循环，出错 worker 的结果未收回）。放宽或删除：无。
 - r6.1（项 0 第 5 轮之前；用户 2026-11-11 第八次决定第 2、3 点）：只改项 0。新增 V0-7（读取基因组时对瞬时 I/O 错误有限重读），V0-6 补充相应测试，项 0 写明第 5 轮的范围。起因：共享 scratch 多次在读取中途报 `Input/output error` / `Cannot send after transport endpoint shutdown`（`docs/lrc_io_incident.md`）。放宽或删除：无。重读不放宽任何内容检查：每次重读都是完整的重新读取，原有的全部检查照常执行，另加两次完整读取一致的要求。
 - r6（本版；处理第 4 轮的 2 条意见，全部接受；第 5 轮由用户特许，范围限定）：
@@ -650,6 +651,61 @@ bag 映射的来源（Stage A 的 bag 表）以 `all_queries.tsv` 的 sha256 固
 - (j) 缺表头、键重现、畸形行、assembly 不在清单、`s0 = −1`、`s1` = contig 长度 + 1 → 致命；`s1` 恰等于 contig 长度 → 通过 [R4-2]；
 - (k) 计数恒等成立；
 - (l) 跨原点边界 fixture（一端 <200 bp）→ 按 S-15 记为限制，不报错。
+
+---
+
+## 项 M1-B：Arm B 结构等位发现（审查与修复）[用户 2026-11-11 第十次决定]
+
+审查命令：`CODEX_REVIEW_MODEL=gpt-6-astra CODEX_REVIEW_TIMEOUT=2400 codex-review "M1 Arm B" review-astra`。模型与推理强度由用户指定：gpt-6-astra，high。本项属于 M1 模块，与项 0–3（M5 全语料扫描）相互独立；审查者只按本节审，第 0 节"通用约定"中的 G-4（记录提交）与"登录节点只跑小样本"适用，其余 M5 条款不适用。
+
+**范围**
+- 主审：`scripts/30_armB_graph.py`、`scripts/lib/tsd.py`、`scripts/lib/util.py`、`scripts/lib/fasta.py`。
+- Arm B → Layer 2 的交接：`tools/discovery_pipeline.py`、`tools/discovery_evidence.py`。
+- 测试：`tests/test_armB_calls.py`、`tests/test_discovery_pipeline.py`，以及本项新增的测试。
+- 只读参照：`scripts/70_allele_reconstructor.py`（Layer 2，2026-08-28 锁定），只用于核对交接契约。对 70 本身的意见记入 `docs/DECISIONS.md`，本项不修改它；要改须用户另行批准。
+- 文档：`docs/DISCOVERY_PIPELINE.md`。
+
+**不在范围**
+- 过去的运行结果（catalogue / database v2、v3 等）不复核、不重跑。本项的改动只影响今后的输出；v3 所用代码的版本记录在 `docs/CATALOGUE_V3_PROVENANCE.md`。
+- Arm A（20）、stage 32、50、60–64、86、87、96–99。
+
+**目的**：Arm B 是主路线的第一层，它的事件表、序列和接合坐标直接成为 Layer 2 的种子。这里的错误会以格式正确的行流到下游，因此每一条都要求"出错即可见"。
+
+**验收标准**
+- **B-1 失败不得伪装成结果。**
+  - 任一外部工具失败、输入不合格或解析失败时，退出码非零，并给出 FATAL 原因。
+  - 最终文件名下的输出（`armB_events.tsv`、`armB_large_events.tsv`、各 FASTA 等）只在全部写完后才出现，可用临时文件加重命名，或完成标记。中途崩溃不得留下可被下游当作已完成的非空最终文件。
+  - `--reuse` 只能复用与当前图一致的产物：图重新构建后，不得复用旧的 call 文件。
+- **B-2 解析不猜测。**
+  - `gfatools bubble` 与 `minigraph --call` 的每一行，要么按文档格式完整解析，要么计为无法解析，并在日志和汇总中报告数目。不得用"取第一个整数"之类的回退去猜等位长度。
+  - 缺失调用（`*`、`.`）与长度为 0 的调用必须区分。
+- **B-3 等位分类不静默丢弃。**
+  - 每个泡上的每个基因组只能归入以下之一：空、满、中间（长度落在空与满的阈值之间）、缺失。中间与缺失的数目写入事件表。
+  - 分类阈值（`--len-tol`、`--min-insert`）只在一处定义。
+- **B-4 尺寸门与停放。**
+  - `insert_size` 在 [min_insert, max_insert] 内的进入主表；大于 max_insert 的停放到 `armB_large_events.tsv`，并保存序列。
+  - 没有泡因为尺寸被静默丢弃；小于 min_insert 的不是事件，但要计数报告。
+  - `parent_large_event_id` 列要么正确填写，要么从表中移除并在文档中说明，不得长期写入无意义的占位值。
+- **B-5 序列与调用一致。**
+  - `armB_inserts.fna` 中的插入序列必须来自被判为空与满的那两个等位，或经核对与之一致。
+  - 导出的插入长度 `insert_len_direct` 与按调用得到的 `insert_size` 相差超过 `--len-tol` 时，必须在 flags 中标出。
+  - 有两种以上不同长度的泡（多等位）必须能被识别。
+- **B-6 接合坐标的坐标系。**
+  - `junction_L` / `junction_R` 以空等位参考基因组（`empty_ref_genome`）的 contig 坐标给出。坐标约定（0 起始、半开）在代码和文档中写明，并有测试；正链与负链都必须正确。
+  - 计算所用的锚长度必须来自与该参考基因组自身序列一致的序列。若该基因组在此泡处的序列与用来求锚的序列（或其反向互补）不一致，不得给出坐标：标为无坐标系，或另行标记，而不是套用不对应的偏移。
+- **B-7 TSD 只作注释。** 任何代码路径都不得按 `tsd_*` 过滤事件，或改变事件是否输出，包括交接给 Layer 2 的部分。
+- **B-8 交接给 Layer 2。** 每个主表事件都出现在候选表中：可播种的给出种子（区间为接合 ± 200 bp，且落在 contig 内）；不可播种的保留并写明原因。缺少基因组或 contig 时给出原因，而不是抛出异常。
+- **B-9 零泡默认失败。** 退出码 3；用 `--allow-zero-bubbles` 可改为记录。
+- **B-10 测试。** 在登录节点上用小样本运行，可用桩程序代替 minigraph 和 gfatools。至少覆盖：
+  - B-1：工具失败、中途崩溃、reuse 与图不一致；
+  - B-2：无法解析的行；
+  - B-3：中间等位；
+  - B-4：>5 kb 停放、<min_insert 计数；
+  - B-5：导出长度与调用不一致被标出；
+  - B-6：正链、负链，以及参考基因组序列与锚序列不一致；
+  - B-8：缺 contig。
+
+**轮数**：同一项最多 3 轮（CLAUDE.md）。对 Layer 2（70）的意见只记录，不在本项修改。
 
 ---
 
