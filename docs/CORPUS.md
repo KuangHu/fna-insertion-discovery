@@ -14,13 +14,13 @@
 
 ## 重复：GCA 与 GCF
 
-E. coli 的来源目录同时含有 GenBank（GCA）与 RefSeq（GCF）两份记录：7,723 个 GCA，5,304 个 GCF，每个 GCF 都与某个 GCA 同一 9 位编号。按 V0 的 contig 长度，5,298 对完全相同；随机抽查 30 对逐碱基相同；6 对是同一组装的不同版本。其他物种没有 GCF。所以语料中实际是 **35,237 个不同组装**，不是 40,541。
+E. coli 的来源目录同时含有 GenBank（GCA）与 RefSeq（GCF）两份记录：7,723 个 GCA，5,304 个 GCF，每个 GCF 都与某个 GCA 同一 9 位编号。全量比较（`M2_corpus.sh`，见下）：5,298 对序列完全相同；5 对是同一组装的不同版本（语料中的 GCF 是 `.1`，GCA 是 `.2`，NCBI 汇总中与 GCA `.2` 配对的是 GCF `.3`）；1 对同版本但内容不同（GCF_002925525.1 只含 GCA_002925525.1 7 条记录中的 5 条，少了 46,701 与 18,617 bp 两条；NCBI 汇总也标为 `different`）。其他物种没有 GCF。所以语料中实际是约 35,237 个不同组装，不是 40,541。
 
 M1 的 panel 不受影响：23,664 个 panel 清单中，没有一个同时含一对中的两个成员。
 
-用户决定（2026-11-12）：语料表不改，由 `250 pairs` 产生一份映射 `corpus_duplicates.tsv`，M5 按分离株计数时据此把 `collapse = yes` 的成员并入代表（GCA 优先，其次新版本）。见 SPEC 项 3 的 S-0。
+用户决定（2026-11-12）：语料表不改，由 `250 pairs` 产生一份映射 `corpus_duplicates.tsv`，M5 按分离株计数时据此把 `collapse = yes` 的成员并入代表（GCA 优先，其次新版本）。见 SPEC 项 3 的 S-0。按此规则 `collapse = yes` 5,303 个（相同 5,298 + 不同版本 5），合并后 **35,238** 个；GCF_002925525.1 按规则为 `differs`、不合并（它与 GCA 是同一分离株、RefSeq 少收两条记录；是否例外合并由用户决定）。
 
-`250 pairs` 读取语料中的每一个基因组（读入字节数须等于文件大小），在 `corpus_content.tsv` 中逐个登记路径、字节数、文件 sha256 与序列内容摘要。它另外列出**不同编号、序列完全相同**的组装（`corpus_identical_other_id.tsv`），只报告、不合并：克隆性物种（B. pertussis、T. pallidum、M. pneumoniae 等）的不同分离株可以序列相同；也有同一份数据重复提交的情况（如 E. coli K-12 MG1655 的 GCA_000005845.2 与 GCA_004358965.1）。合不合并由用户另行决定。按 V0 的 contig 长度，不同编号、长度完全相同的有 870 组、2,685 个组装；早先 20 组的抽样中 6 组确认序列相同。全量结果待 `M2_corpus.sh` 运行。
+`250 pairs` 读取语料中的每一个基因组（读入字节数须等于文件大小），在 `corpus_content.tsv` 中逐个登记路径、字节数、文件 sha256 与序列内容摘要。它另外列出**不同编号、序列完全相同**的组装（`corpus_identical_other_id.tsv`），只报告、不合并：克隆性物种（B. pertussis、T. pallidum、M. pneumoniae 等）的不同分离株可以序列相同；也有同一份数据重复提交的情况（如 E. coli K-12 MG1655 的 GCA_000005845.2 与 GCA_004358965.1）。合不合并由用户另行决定。全量结果：125 组、344 个组装（含 GCF 成员），涉及 275 个不同编号；若全部合并，再少 150 个编号。没有跨物种的组。E. coli 33 组 145 个，K. pneumoniae 20 组，L. monocytogenes 13 组，M. tuberculosis 11 组，C. trachomatis 10 组，其余 ≤ 8 组。最大一组是 E. coli GCA_030345415.1–GCA_030345635.1 的 12 个连续编号（各一条 4,687,476 bp 染色体，序列相同）。
 
 ## 缺口
 
@@ -39,6 +39,10 @@ E. coli 的 1,243 个即早先已知的"Step 1 增量"（约 1,238 个），从�
 
 截止日前缺失的 1,540 个已于 2026-11-12 下载到暂存目录 `$W/corpus_staging/20261112/<species>/`（`tools/download_staging.sh`，在登录节点运行，用户批准），每个都通过 NCBI md5 与 `gunzip -t` 校验，0 个失败，共 7.1 GB。审查第 3 轮之后工具收紧（md5 清单单独下载并检查 curl 退出码，URL 须有主机名），用新工具重新核对，1,540 个全部通过，未重新下载（`download.recheck3.log`）；第 4 轮后 `.ok` 改为逐字段核对，再次复核全部通过（`download.recheck4.log`）。**它们不在语料中**；并入语料需要用户另行决定，并修订 SPEC 项 0–3（40,541 写在其中）。截止日后的 3,342 个尚未下载。
 
+## 全量运行
+
+作业 27807675（2026-11-12，n0012.cf1，提交 `8aba32f`，26 分钟），结果在 `$W/corpus_m2/runs/27807675/`：`build` 与 `corpus_v2.tsv` 逐字节相同；`gaps` 与登录节点上的 dev 运行逐字节相同；`pairs` 读取 40,541 个基因组共 179.7 GB，`corpus_content.tsv` 逐个登记。三个子目录都是 `status: complete`，产物 sha256 与结果 JSON 一致。运行记录中 `git_dirty: true`，原因是仓库中有与 M2 无关的未跟踪文件（M5 的 241、242、V1、V2 脚本）；作业脚本已核对 250、作业脚本本身与配置与提交逐字节相同。M5 消费映射时按 SPEC S-0 核对 `pairs.json` 的 `corpus_sha256` 与产物 sha256。
+
 ## 运行
 
-审查通过并提交之后，全量运行用 `slurm/corpus/M2_corpus.sh`（build、gaps、pairs 依次运行，输入以 sha256 固定）。登录节点上只跑测试 `tests/test_build_corpus.py`，以及用小样本语料表（几十个基因组，sha256 照样固定）运行的 `pairs`。
+全量运行用 `slurm/corpus/M2_corpus.sh`（build、gaps、pairs 依次运行，输入以 sha256 固定）。登录节点上只跑测试 `tests/test_build_corpus.py`，以及用小样本语料表（几十个基因组，sha256 照样固定）运行的 `pairs`。
