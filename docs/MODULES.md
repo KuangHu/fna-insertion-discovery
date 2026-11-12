@@ -36,7 +36,7 @@
 | `20_armA_multicopy.py` | L1 | Arm A：基因组内 ≥3 拷贝的重复 | 参数锁定（300 ≤ L < 5000，min_copies 3）；minimap2 `-f 0` 修复 |
 | `30_armB_graph.py` | L1 | Arm B：ANI 簇上 minigraph 图泡 → 空/满等位 | 在用；>5 kb 泡另存不丢 |
 | `_retired/30b_armB_pangraph.py`、`_retired/31_armB_refine.py` | L1 | PanGraph 引擎、核苷酸级精修 | 退役 |
-| `32_nested_search.py` | L1 | 在 >5 kb 泡内搜嵌套的 <5 kb 插入 | 已写 |
+| `32_nested_search.py` | L1 | 在 >5 kb 泡内搜嵌套的 <5 kb 插入 | 已运行（E. coli、K. pneu）；审阅后**结果不可用**，见 `docs/STAGE32_REVIEW.md` |
 | `_retired/40_merge_catalog.py` | L1 | 两臂合并 | 退役（由 86 取代） |
 | `50_annotate.py` | L5 | 注释，最后做，按独立证据轴报告 | 已运行 |
 | `60`–`64` | 基准 | 60 Arm A vs ISEScan 列联表；61 读段金标准分层（从未在真实数据上运行）；62 A∪B 召回；63 Arm A 漏检分类；64 重复惩罚诊断 | 结论见 README |

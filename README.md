@@ -20,8 +20,11 @@ bubbles go to `armB_large_events.tsv` + `armB_large_inserts.fna` with ids
 column to link back. On the 3-genome test this retains 42 bubbles (median 15 kb,
 range 5.5–66 kb) that the size gate used to throw away. Stage 32
 (`32_nested_search.py`) mines them for nested <5 kb insertions. It has been
-run on E. coli and K. pneumoniae (2026-09-09, `$W/stage32/`, 26 + 53 rows);
-those results have not yet been reviewed or folded into the catalogue.
+run on E. coli and K. pneumoniae (2026-09-09, `$W/stage32/`, 26 + 53 rows).
+Reviewed 2026-11-11 ([docs/STAGE32_REVIEW.md](docs/STAGE32_REVIEW.md)): the
+results are **not usable as catalogue rows**. The pairing only compares
+parents less than 1 kb apart in length, and the output has hashes but no
+sequences. There is a credible IS1 signal (777 bp, 9 bp TSD) inside islands.
 
 > **Status (2026-11-11).** The current product of this module is
 > `database_v3/insertions.tsv`: 105,048 events, 18 species. It was built from
