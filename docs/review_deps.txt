@@ -37,6 +37,8 @@ slurm/isref_v1/sweep2.sh
 
 [V0 可信清单] v0-trusted-manifest
 scripts/248_trusted_manifest.py
+docs/reviews/v0-trusted-manifest/r04.md
+docs/lrc_io_incident.md
 slurm/isref_all/C_sweep.sh
 slurm/isref_all/V0_prep.sh
 slurm/isref_all/V0b_dbtest.sh
