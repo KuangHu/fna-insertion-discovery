@@ -484,6 +484,21 @@ class TIO(unittest.TestCase):
         self.assertEqual(self.sleeps, [10])
         self.assertEqual(self.counter.value, 1)
 
+    def test_error_logged_immediately(self):
+        import io as _io
+        self.plan([errno.EIO])
+        ev, old = [], sys.stderr
+        sys.stderr = buf = _io.StringIO()
+        try:
+            self.m.IO_BACKOFF_SECONDS = (10, 30)
+            self.m.read_genome(self.p, "G", self.counter, sleep=self.sleeps.append, events=ev)
+        finally:
+            sys.stderr = old
+        self.assertEqual([(d["assembly"], d["errno"], d["attempt"], d["node_total"]) for d in ev],
+                         [("G", "EIO", 1, 1)])
+        self.assertIn('IO_ERROR {', buf.getvalue())
+        self.assertIn('"errno": "EIO"', buf.getvalue())
+
     def test_no_error_reads_once(self):
         fp = self.plan([])
         *_, io = self.read()
@@ -620,6 +635,8 @@ class TIOBuild(unittest.TestCase):
         self.assertEqual(io["node_io_errors"], 1)
         self.assertEqual(io["node"], res["host"])
         self.assertEqual(io["genomes_reread"], [{"assembly": "GCA_3.1", "rereads": 2, "io_errors": "EIO"}])
+        self.assertEqual([(d["assembly"], d["errno"], d["attempt"], d["host"]) for d in io["events"]],
+                         [("GCA_3.1", "EIO", 1, res["host"])])
         self.assertIn("genome_reads.tsv", res["outputs"])
         # the trusted manifest does not depend on I/O history
         for name in ("genomes.tsv", "contigs.tsv", "genome_manifest.index"):
@@ -641,6 +658,10 @@ class TIOBuild(unittest.TestCase):
         failed = self.rd("run", "FAILED").decode()
         self.assertIn(f"node_io_error_limit: node {socket.gethostname()}", failed)
         self.assertIn(f"host={socket.gethostname()}", failed)
+        # the record names the genomes and errnos even though the pool was torn down
+        self.assertNotIn("logged errors (assembly:errno@time#attempt): []", failed)
+        self.assertRegex(failed, r"GCA_[124]\.1:(EIO|ENOTCONN)@")
+        self.assertIn("errno counts {", failed)
         self.assertFalse(os.path.exists(os.path.join(self.tmp, "run", "v0_result.json")))
 
     def test_reads_record_tamper_caught_by_check(self):

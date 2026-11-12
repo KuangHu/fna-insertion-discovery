@@ -48,6 +48,9 @@ shutdown" mid-read):
     (increasing); the confirming read follows a complete read without a wait;
   * errors are counted per node (this process tree runs on one node); at 5 the
     whole build fails and FAILED names the node;
+  * every such error is logged the moment it happens (an `IO_ERROR {json}`
+    line on stderr, and a shared list the parent reads even after tearing the
+    pool down), so a failure record names the genomes, errnos and times;
   * genome_reads.tsv records re-reads and errors for every genome, and
     v0_result.json lists the genomes with re-reads > 0.  Neither is part of the
     genome trusted manifest, so the manifest does not depend on I/O history.
@@ -276,7 +279,26 @@ def _bump(counter):
         return counter.value
 
 
-def read_genome(path, label, counter, sleep=time.sleep):
+def _record_io_event(events, label, path, name, attempt, node_total, exc):
+    """Log one transient I/O error the moment it happens: a line on stderr (the
+    SLURM log) and, when given, an entry in the shared events list, so the
+    record survives even if the pool is torn down before the worker returns."""
+    ev = {"time": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "host": socket.gethostname(),
+          "pid": os.getpid(), "assembly": label, "path": path, "errno": name,
+          "attempt": attempt, "node_total": node_total, "message": str(exc)}
+    try:
+        sys.stderr.write("IO_ERROR " + json.dumps(ev, sort_keys=True) + "\n")
+        sys.stderr.flush()
+    except OSError:
+        pass
+    if events is not None:
+        try:
+            events.append(ev)
+        except Exception:   # the record is diagnostic; never let it mask the error itself
+            pass
+
+
+def read_genome(path, label, counter, sleep=time.sleep, events=None):
     """scan_fasta with the V0-7 re-read policy (see the module docstring).
 
     Returns (nbytes, sha256, recs, io) with io = {"rereads": n, "io_errors": [..]}.
@@ -301,6 +323,7 @@ def read_genome(path, label, counter, sleep=time.sleep):
                 raise GenomeReadFail(f"genome_unreadable: {label} {path} {e}", io())
             errs.append(name)
             node_total = _bump(counter)
+            _record_io_event(events, label, path, name, reads, node_total, e)
             if node_total >= NODE_IO_ERROR_LIMIT:
                 raise GenomeReadFail(f"node_io_error_limit: {label} error {name}; node total {node_total}", io())
             # reads left in the budget; after an error two must remain (a
@@ -322,18 +345,20 @@ def read_genome(path, label, counter, sleep=time.sleep):
 
 
 _NODE_COUNTER = None
+_IO_EVENTS = None
 
 
-def _pool_init(counter):
-    global _NODE_COUNTER
+def _pool_init(counter, events):
+    global _NODE_COUNTER, _IO_EVENTS
     _NODE_COUNTER = counter
+    _IO_EVENTS = events
 
 
 def _scan_genome(job):
     """Pool worker: (k, error or None, (nbytes, sha, recs) or None, io)."""
     k, acc, path = job
     try:
-        nbytes, sha, recs, io = read_genome(path, acc, _NODE_COUNTER)
+        nbytes, sha, recs, io = read_genome(path, acc, _NODE_COUNTER, events=_IO_EVENTS)
     except GenomeReadFail as e:
         return k, str(e), None, e.io
     except Fail as e:
@@ -352,10 +377,14 @@ def scan_genomes(jobs, threads):
     pool is torn down as soon as the node counter reaches the limit."""
     ctx = multiprocessing.get_context("fork")
     counter = ctx.Value("i", 0)
+    # a Manager list, not a Queue: workers killed by pool.terminate() cannot
+    # corrupt it, and every append is complete when the call returns
+    mgr = ctx.Manager()
+    events = mgr.list()
     res = [None] * len(jobs)
     ios = [None] * len(jobs)
     errors = []
-    with ctx.Pool(threads, initializer=_pool_init, initargs=(counter,)) as pool:
+    with ctx.Pool(threads, initializer=_pool_init, initargs=(counter, events)) as pool:
         for done, (k, err, val, io) in enumerate(pool.imap_unordered(_scan_genome, jobs, chunksize=8), 1):
             ios[k] = io
             if err:
@@ -366,7 +395,9 @@ def scan_genomes(jobs, threads):
                 break
             if done % 5000 == 0:
                 print(f"  scanned {done}/{len(jobs)} genomes", flush=True)
-    return res, ios, errors, counter.value
+    ev = sorted(list(events), key=lambda d: (d["time"], d["assembly"], d["attempt"]))
+    mgr.shutdown()
+    return res, ios, errors, counter.value, ev
 
 
 def write_atomic(path, data):
@@ -541,16 +572,20 @@ def build(a):
         # genomes, read once each (V0-7 re-reads aside), in parallel; results
         # kept in corpus order
         jobs = [(k, acc, path) for k, (acc, path) in enumerate(rows)]
-        res, ios, errors, node_io = scan_genomes(jobs, a.threads)
+        res, ios, errors, node_io, io_events = scan_genomes(jobs, a.threads)
+        ev_short = [f"{d['assembly']}:{d['errno']}@{d['time']}#{d['attempt']}" for d in io_events]
         hit = sorted((rows[k][0], io["rereads"], ",".join(io["io_errors"]))
                      for k, io in enumerate(ios) if io and (io["rereads"] or io["io_errors"]))
         if node_io >= NODE_IO_ERROR_LIMIT:
             raise Fail(f"node_io_error_limit: node {host} had {node_io} I/O errors "
-                       f"(limit {NODE_IO_ERROR_LIMIT}); genomes with errors: {hit[:20]}")
+                       f"(limit {NODE_IO_ERROR_LIMIT}); errno counts "
+                       f"{dict(Counter(d['errno'] for d in io_events))}; "
+                       f"{len(io_events)} logged errors (assembly:errno@time#attempt): {ev_short[:40]}; "
+                       f"genomes returned with re-reads: {hit[:20]}")
         if errors:
             errors.sort()
             raise Fail(f"genome_scan: {len(errors)} failures; first: {errors[:5]}; "
-                       f"node {host} I/O errors {node_io}")
+                       f"node {host} I/O errors {node_io}; logged errors: {ev_short[:40]}")
         print(f"genomes: {len(rows)} read; node {host} I/O errors {node_io}; "
               f"genomes re-read {len(hit)}: {hit}", flush=True)
 
@@ -631,6 +666,7 @@ def build(a):
                            "confirming_read_after_error": True},
                 "node": host,
                 "node_io_errors": node_io,
+                "events": io_events,
                 "genomes_reread": [{"assembly": acc, "rereads": n, "io_errors": errs}
                                    for acc, n, errs in hit],
             },
