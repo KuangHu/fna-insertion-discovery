@@ -18,7 +18,7 @@ Times are PST (UTC−8). Error lines are quoted verbatim from the job logs.
    - n0037, n0039, n0043, n0044, n0046, n0047 and n0051, 11-10 20:00 – 11-11 02:10;
    - n0040 around 11-11 02:00–04:20;
    - n0052, 11-11 17:08–17:35.
-2. Is n0052 still unhealthy? Should we keep excluding it, and are there other nodes we should exclude?
+2. Are OST 9–11 known to be slow (3–5× slower per file in our probe)? Is n0052 still unhealthy? Should we keep excluding it, and are there other nodes we should exclude?
 3. Task 4 of job 27725308 (n0040): processes were left behind after `JOB NOT ENDING WITH SIGNALS`. Could they have kept writing to scratch after the job ended?
 
 ## Job 27786542 (single job, node n0052.cf1, 11-11 17:08:02 – 17:34:35, FAILED, exit 123)
@@ -84,6 +84,26 @@ Notes on the table:
   - It then hit 25 read errors of type EIO, ENOTCONN or ESHUTDOWN in a short burst, and our tool stopped at its limit of 5.
   - The verbatim failure record is `node_io_error_limit: node n0059.cf1 had 25 I/O errors (limit 5)`.
   - sacct shows six other FAILED jobs from another user on n0059.cf1 between 16:56 and 18:44 the same day.
+
+## Read probe, 2026-11-11 20:28–20:31 (job 27788912, n0012.cf1)
+
+- **What we ran.** A read-only probe on the same genome files:
+  - read 3,240 randomly chosen files in full, with 1, 8, 32 and 64 parallel readers;
+  - ran `stat` on all 40,541 files (179.7 GB in total);
+  - wrote 512 MiB with `fsync`, then read it back.
+- **Errors: none.**
+  - Throughput at 64 readers was 1,333 MB/s. Job 27788052 on n0059.cf1 two hours earlier averaged about 12 MB/s.
+  - The `stat` pass took 37.5 s, with p99 0.24 s per file.
+- **Per-OST read speed.** Median per file, with the 10th percentile in brackets:
+
+  | OSTs | Speed |
+  |---|---|
+  | OST 9 / 10 / 11 (the 28%-full targets) | 12 / 12.5 / 8 MB/s (4 / 5 / 3) |
+  | Every other HDD OST (0–8, 12–21) | 30–61 MB/s (15–33) |
+
+  OST 9, 10 and 11 are 3–5× slower than the rest; 145–165 files were sampled on each.
+- **One stall.** Two reads on different OSTs (10 and 12) each took 50.3–50.5 s, ending together at about 20:29:40. All other reads finished in under 1.3 s.
+- **Our reading.** Both reads stalled at the same moment on two different OSTs, which looks like a stall on the client or across the filesystem. A longer stall of the same kind would match the EIO/ENOTCONN/ESHUTDOWN errors above. The problem comes and goes over time; we have not found one node or one OST that is permanently broken.
 
 ## Our mitigations (for context)
 
