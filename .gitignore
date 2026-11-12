@@ -25,3 +25,35 @@ database/
 catalogue/
 bags/
 cds/
+
+# ---- added 2026-11-11 for the codex-review loop --------------------------
+# codex-review sends every untracked, non-ignored file to the reviewer in
+# full, so anything not excluded here becomes review input.
+# SLURM / tool logs (the old `*_%j.out` pattern was literal and matched nothing)
+*.out
+*.err
+*.log
+# shard outputs, raw hits, blast databases, GenBank conversions
+*.raw
+*.raw7
+*.tsv
+!config/**/*.tsv
+!tests/**/*.tsv
+*.gbk
+*.nhr
+*.nin
+*.nsq
+*.ndb
+*.not
+*.ntf
+*.nto
+*.njs
+*.nog
+*.nal
+*.nos
+# bundles and local data (insertion_record_format_v1_bundle.zip: user decision, ignore)
+*.zip
+reference/
+# local tooling state, and previous review outputs
+.claude/worktrees/
+.review/

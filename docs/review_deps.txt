@@ -1,0 +1,80 @@
+# docs/review_deps.txt —— 每个 SPEC 项的必需审查材料（codex-review v4 读取）
+#
+# 格式：
+#   [<项名>] <slug>          项名与 `codex-review "<项名>"` 逐字一致；slug 用于存档目录 docs/reviews/<slug>/
+#   <仓库内相对路径>          每行一个
+#
+# AGENTS.md、docs/SPEC.md、docs/review_deps.txt 由 wrapper 对每一项自动加入，不必列出。
+# 列出的文件不论已提交、已修改还是未跟踪，都全文发送。任一文件缺失、为空、为二进制、
+# 超过 200,000 字节或被 .gitignore 忽略，wrapper 在调用审查者之前直接输出 VERDICT: ERROR。
+# `DIFF <旧文件> <新文件>`：两侧都按上面的规则检查，但只发送 diff -u，旧文件不全文发送。
+# 尚未写出的文件（标"待写"的组件）列在这里是有意的：实现之前该项的审查必然 ERROR。
+
+[SPEC pre-review] spec-pre-review
+CLAUDE.md
+tools/codex-review
+docs/legacy_shard_inventory.md
+docs/reviews/spec-pre-review/r04.md
+docs/reviews/spec-pre-review/r07.md
+DIFF docs/reviews/spec-pre-review/r04.SPEC.md docs/SPEC.md
+scripts/233_isref_copies.py
+scripts/236_select_queries.py
+scripts/237_query_equivalence.py
+scripts/239_chain_copies.py
+scripts/240_verify_shards.py
+scripts/241_audit_shards.py
+scripts/242_collapse_sites.py
+slurm/isref_all/A3_queries.sh
+slurm/isref_all/C_sweep.sh
+slurm/isref_all/C_retry.sh
+slurm/isref_all/V0_prep.sh
+slurm/isref_all/V0b_dbtest.sh
+slurm/isref_all/V1_audit.sh
+slurm/isref_all/V2_verified.sh
+slurm/isref_v1/loci.sh
+slurm/isref_v1/sweep.sh
+slurm/isref_v1/sweep2.sh
+
+[V0 可信清单] v0-trusted-manifest
+scripts/248_trusted_manifest.py
+slurm/isref_all/C_sweep.sh
+slurm/isref_all/V0_prep.sh
+slurm/isref_all/V0b_dbtest.sh
+tests/test_trusted_manifest.py
+
+[V2 shard 验证] v2-shard-verification
+scripts/239_chain_copies.py
+scripts/243_outfmt7_accounting.py
+scripts/244_publish.py
+slurm/isref_all/C_sweep.sh
+slurm/isref_all/V0_prep.sh
+slurm/isref_all/V0b_dbtest.sh
+slurm/isref_all/V2_verified.sh
+config/isref_all_trusted.tsv
+tests/test_outfmt7_accounting.py
+tests/test_publish.py
+
+[241 审计] audit-241
+# 验收内容只有 A-D（SPEC 项 2）；241_audit_shards.py 与 A-S 属附录 A，不是本项材料
+scripts/246_legacy_vs_v2.py
+scripts/244_publish.py
+slurm/isref_all/C_sweep.sh
+slurm/isref_all/V1_audit.sh
+slurm/isref_all/V2_verified.sh
+docs/legacy_shard_inventory.md
+tests/test_legacy_vs_v2.py
+
+[242 位点合并] collapse-242
+scripts/236_select_queries.py
+scripts/237_query_equivalence.py
+scripts/239_chain_copies.py
+scripts/242_collapse_sites.py
+scripts/244_publish.py
+scripts/245_query_orientation.py
+scripts/247_query_pair_containment.py
+slurm/isref_all/A3_queries.sh
+slurm/isref_all/S1_sites.sh
+slurm/isref_v1/loci.sh
+tests/test_collapse_sites.py
+tests/test_query_orientation.py
+tests/test_query_pair_containment.py

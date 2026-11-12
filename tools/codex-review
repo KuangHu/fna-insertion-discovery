@@ -1,0 +1,361 @@
+#!/bin/bash
+# codex-review <SPEC当前项> [review|review-hard]
+#
+# v4 (2026-11-11).  v3 plus:
+#  * `DIFF <old> <new>` lines in docs/review_deps.txt: both files get the same
+#    mechanical checks as required material, but only `diff -u old new` is sent,
+#    not the old file in full (used for the previously reviewed SPEC snapshot).
+#  * The profile's model_reasoning_summary and codex's logged "reasoning
+#    summaries" are recorded in the archive.
+#  * Default internal timeout 2400 s; CLAUDE.md runs the wrapper in the
+#    background, so the 900 s tool limit no longer applies.
+#
+# v3 (2026-11-11).  v2 plus attempt handling, after round 2 of the SPEC
+# pre-review hung on a lost API connection and was killed by the outer 900 s
+# limit before it could archive anything:
+#  * Internal timeout (CODEX_REVIEW_TIMEOUT, default 840 s, under the 900 s
+#    outer limit in CLAUDE.md).  On timeout the attempt is archived as ERROR.
+#  * The attempt is recorded in docs/reviews/<slug>/rNN.md (verdict INCOMPLETE)
+#    BEFORE codex is launched, so even a SIGKILL of this wrapper leaves a record.
+#  * codex runs in its own process group (setsid + timeout).  Timeout and
+#    TERM/INT/HUP terminate that group only: never this wrapper's group, never
+#    unrelated processes.
+#  * Every attempt has its own working directory .review/attempts/<attempt_id>/;
+#    codex writes its verdict there, so a previous attempt's output can never be
+#    read as this attempt's verdict.  .review/review.md is deleted at start and
+#    written only at the very end.
+#  * rNN is the RUN number (ERROR runs included).  The review round is recorded
+#    separately as review_round, counting only PASS/FAIL runs.
+#
+# From v2: required material per item from docs/review_deps.txt, sent in full
+# whether committed, modified or untracked; missing / empty / binary / oversized
+# / gitignored material is an ERROR raised before the reviewer is called; the
+# model is pinned (default gpt-6.1-sol) and checked against the profile before
+# and against codex's own log after; non-declared untracked files listed by name.
+#
+# Env: CODEX_REVIEW_MODEL (gpt-6.1-sol), CODEX_REVIEW_MAXB (200000),
+#      CODEX_REVIEW_TIMEOUT (2400), CODEX_REVIEW_KILL_AFTER (20),
+#      CODEX_REVIEW_DRYRUN=1 (assemble and check input only; no codex, no archive)
+set -uo pipefail
+item="${1:?用法: codex-review <SPEC当前项> [review|review-hard]}"
+profile="${2:-review}"
+EXPECTED_MODEL="${CODEX_REVIEW_MODEL:-gpt-6.1-sol}"
+MAXB="${CODEX_REVIEW_MAXB:-200000}"
+TMO="${CODEX_REVIEW_TIMEOUT:-2400}"
+KILL_AFTER="${CODEX_REVIEW_KILL_AFTER:-20}"
+DRYRUN="${CODEX_REVIEW_DRYRUN:-0}"
+SELF=$(readlink -f "$0")
+WRAPPER_SHA=$(sha256sum "$SELF" | awk '{print $1}')
+PROFILE_FILE="$HOME/.codex/${profile}.config.toml"
+PROMPT="按 AGENTS.md 审查。全部所需内容已通过 stdin 提供，不要执行任何命令。SPEC 当前项：$item"
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || { printf 'VERDICT: ERROR\n当前目录不在 git 仓库内：%s\n' "$PWD"; exit 1; }
+cd "$root" || exit 1
+mkdir -p .review
+# nothing from an earlier run may survive into this one
+rm -f .review/review.md .review/review_raw.md .review/input.txt .review/codex.log
+
+UTC0=$(date -u +%Y%m%dT%H%M%SZ)
+slug=""; seq=""; AD=""; attempt_id=""; cfg_model=""; cfg_effort=""; obs_model=""; obs_effort=""
+cfg_summary=""; obs_summary=""
+insha=""; inbytes=0; head=""; dirty=""; rc=""; cpid=""; stragglers=no
+declare -a REQ=() RSTATE=() RSHA=() RBYTES=()
+declare -a DOLD=() DNEW=() DINFO=()
+
+review_round_next() {
+  local d="docs/reviews/$slug" n=0 f
+  for f in "$d"/r[0-9]*.md; do
+    case "$f" in *.SPEC.md) continue;; esac
+    [ -f "$f" ] || continue
+    [ "$f" = "$d/r$seq.md" ] && continue
+    grep -qx 'completed_round: yes' "$f" && n=$((n + 1))
+  done
+  echo $((n + 1))
+}
+
+# archive <verdict> [reason]; verdict INCOMPLETE = pre-launch record
+archive() {
+  local verdict="$1" reason="${2:-}"
+  [ "$DRYRUN" = 1 ] && return 0
+  [ -n "$slug" ] && [ -n "$seq" ] || return 0
+  local d="docs/reviews/$slug" h=".review/history/$slug" f k completed rround
+  mkdir -p "$d" "$h" || return 0
+  f="$d/r$seq.md"
+  case "$verdict" in PASS|FAIL) completed=yes; rround=$(review_round_next);; *) completed=no; rround=none;; esac
+  {
+    echo "---"
+    echo "item: $item"
+    echo "slug: $slug"
+    echo "run: r$seq"
+    echo "attempt_id: ${attempt_id:-none}"
+    echo "completed_round: $completed"
+    echo "review_round: $rround"
+    echo "verdict: $verdict"
+    [ -n "$reason" ] && echo "error_reason: $reason"
+    echo "utc_start: $UTC0"
+    echo "utc_end: $(date -u +%Y%m%dT%H%M%SZ)"
+    echo "profile: $profile"
+    echo "expected_model: $EXPECTED_MODEL"
+    echo "configured_model: ${cfg_model:-unknown}"
+    echo "configured_effort: ${cfg_effort:-unknown}"
+    echo "configured_summary: ${cfg_summary:-unset}"
+    echo "observed_model: ${obs_model:-not-run}"
+    echo "observed_effort: ${obs_effort:-not-run}"
+    echo "observed_summary: ${obs_summary:-not-run}"
+    echo "timeout_s: $TMO"
+    echo "kill_after_s: $KILL_AFTER"
+    echo "codex_exit: ${rc:-not-run}"
+    echo "stragglers_killed: $stragglers"
+    echo "codex_version: $(codex --version 2>/dev/null | head -1)"
+    echo "wrapper_sha256: $WRAPPER_SHA"
+    echo "git_head: ${head:-unknown}"
+    echo "git_dirty: ${dirty:-unknown}"
+    echo "input_sha256: ${insha:-none}"
+    echo "input_bytes: ${inbytes:-0}"
+    echo "required_files:"
+    for k in "${!REQ[@]}"; do
+      echo "  - ${REQ[$k]} | ${RSTATE[$k]:-unchecked} | ${RBYTES[$k]:-} | ${RSHA[$k]:-}"
+    done
+    echo "diff_files:"
+    for k in "${!DOLD[@]}"; do
+      echo "  - ${DOLD[$k]} -> ${DNEW[$k]} | ${DINFO[$k]:-unchecked}"
+    done
+    echo "---"
+    echo
+    if [ "$verdict" = INCOMPLETE ]; then
+      echo "VERDICT: INCOMPLETE"
+      echo "本次尝试已在启动 codex 之前登记。若本文件停留在这个状态，说明 wrapper 没能正常结束（例如被 SIGKILL）。这不是结论，不计轮数。"
+    elif [ -n "$reason" ]; then
+      echo "VERDICT: ERROR"
+      echo "$reason"
+      if [ -n "$AD" ] && [ -s "$AD/review_raw.md" ]; then
+        echo
+        echo "## 审查者的部分或原始输出（已作废，仅存档）"
+        echo
+        cat "$AD/review_raw.md"
+      fi
+    else
+      cat "$AD/review_raw.md"
+    fi
+  } > "$f.tmp" && mv -f "$f.tmp" "$f"
+  cp -p docs/SPEC.md "$d/r$seq.SPEC.md" 2>/dev/null
+  if [ -n "$AD" ]; then
+    [ -f "$AD/input.txt" ] && cp -p "$AD/input.txt" "$h/r$seq.input.txt"
+    [ -f "$AD/codex.log" ] && cp -p "$AD/codex.log" "$h/r$seq.codex.log"
+  fi
+}
+
+fail() {
+  trap - TERM INT HUP
+  printf 'VERDICT: ERROR\n%s\n' "$*" > .review/review.md
+  archive ERROR "$*"
+  cat .review/review.md; echo
+  exit 1
+}
+
+# terminate this attempt's process group only
+kill_attempt() {
+  [ -n "$cpid" ] || return 0
+  if kill -0 "$cpid" 2>/dev/null; then
+    kill -TERM -- "-$cpid" 2>/dev/null
+    local i
+    for i in $(seq 1 "$KILL_AFTER"); do kill -0 "$cpid" 2>/dev/null || break; sleep 1; done
+  fi
+  if pgrep -g "$cpid" >/dev/null 2>&1; then
+    kill -KILL -- "-$cpid" 2>/dev/null; stragglers=yes
+  fi
+}
+on_signal() {
+  trap - TERM INT HUP
+  kill_attempt
+  fail "wrapper 收到信号 $1；已终止本次尝试的进程组（pgid ${cpid:-无}），已有的部分输出作废存档"
+}
+
+printf '%s' "$TMO" | grep -qxE '[1-9][0-9]*' || fail "CODEX_REVIEW_TIMEOUT 必须是正整数秒：「$TMO」"
+printf '%s' "$KILL_AFTER" | grep -qxE '[1-9][0-9]*' || fail "CODEX_REVIEW_KILL_AFTER 必须是正整数秒：「$KILL_AFTER」"
+
+# ---------- item and its declared material ----------
+DEPS=docs/review_deps.txt
+[ -f docs/SPEC.md ] || fail "缺少 docs/SPEC.md"
+[ -f AGENTS.md ]    || fail "缺少 AGENTS.md"
+[ -f "$DEPS" ]      || fail "缺少 $DEPS（按项声明的必需材料清单）"
+parsed=$(awk -v it="$item" '
+  /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
+  /^\[/ {
+    inside = 0; n = index($0, "]")
+    if (n < 3) { print "BAD\t" NR; next }
+    name = substr($0, 2, n - 2); rest = substr($0, n + 1)
+    gsub(/^[ \t]+|[ \t]+$/, "", rest)
+    if (name == it) { inside = 1; found++; print "SLUG\t" rest }
+    next
+  }
+  inside {
+    line = $0; gsub(/^[ \t]+|[ \t]+$/, "", line)
+    if (line ~ /^DIFF[ \t]/) {
+      n2 = split(line, w, /[ \t]+/)
+      if (n2 != 3) { print "BADDIFF\t" NR; next }
+      print "DIFF\t" w[2] "\t" w[3]; next
+    }
+    print "FILE\t" line
+  }
+  END { print "COUNT\t" found + 0 }' "$DEPS")
+cnt=$(printf '%s\n' "$parsed" | awk -F'\t' '$1=="COUNT"{print $2}')
+printf '%s\n' "$parsed" | grep -q '^BADDIFF' && fail "$DEPS 有格式错误的 DIFF 行（应为 DIFF <旧文件> <新文件>）"
+printf '%s\n' "$parsed" | grep -q '^BAD' && fail "$DEPS 有格式错误的节标题"
+[ "$cnt" = 1 ] || fail "$DEPS 中项「$item」出现 ${cnt} 次（必须恰好 1 次）；未声明必需材料的项不能审查"
+slug=$(printf '%s\n' "$parsed" | awk -F'\t' '$1=="SLUG"{print $2}')
+printf '%s' "$slug" | grep -qxE '[a-z0-9][a-z0-9-]*' || { slug=""; fail "项「$item」的 slug 不合法"; }
+
+d="docs/reviews/$slug"
+last=$(ls "$d" 2>/dev/null | sed -n 's/^r\([0-9][0-9]*\)\.md$/\1/p' | sort -n | tail -1)
+seq=$(printf '%02d' $(( 10#${last:-0} + 1 )))
+attempt_id="${slug}-r${seq}-${UTC0}-$$"
+if [ "$DRYRUN" = 1 ]; then AD=".review/attempts/dryrun-$attempt_id"; else AD=".review/attempts/$attempt_id"; fi
+mkdir -p .review/attempts && mkdir "$AD" || { AD=""; fail "无法创建本次尝试的独立目录（可能重复）：$attempt_id"; }
+
+REQ=(AGENTS.md docs/SPEC.md "$DEPS")
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  dup=0; for x in "${REQ[@]}"; do [ "$x" = "$f" ] && dup=1; done
+  [ $dup = 0 ] && REQ+=("$f")
+done < <(printf '%s\n' "$parsed" | awk -F'\t' '$1=="FILE"{print $2}')
+while IFS=$'\t' read -r o nw; do
+  [ -n "$o" ] || continue
+  DOLD+=("$o"); DNEW+=("$nw")
+done < <(printf '%s\n' "$parsed" | awk -F'\t' '$1=="DIFF"{print $2 "\t" $3}')
+
+# ---------- check every required file mechanically ----------
+# check_one <path>: fails, or sets CK_STATE CK_BYTES CK_SHA
+check_one() {
+  local f="$1" sz st
+  case "$f" in /*|../*|*/../*|*/..) fail "必需材料路径必须是仓库内相对路径：$f";; esac
+  [ -e "$f" ] || fail "必需材料缺失：$f"
+  [ -f "$f" ] || fail "必需材料不是普通文件：$f"
+  [ -s "$f" ] || fail "必需材料为空：$f"
+  sz=$(stat -c%s "$f")
+  [ "$sz" -le "$MAXB" ] || fail "必需材料超过 ${MAXB} 字节，会被截断：$f（${sz} 字节）"
+  grep -Iq . "$f" || fail "必需材料是二进制文件：$f"
+  if git ls-files --error-unmatch -- "$f" >/dev/null 2>&1; then
+    if git diff --quiet HEAD -- "$f"; then st=tracked-clean; else st=tracked-modified; fi
+  else
+    git check-ignore -q -- "$f" && fail "必需材料被 .gitignore 忽略，无法入库：$f"
+    st=untracked
+  fi
+  CK_STATE=$st; CK_BYTES=$sz; CK_SHA=$(sha256sum "$f" | awk '{print $1}')
+}
+for k in "${!REQ[@]}"; do
+  check_one "${REQ[$k]}"
+  RSTATE[$k]=$CK_STATE; RBYTES[$k]=$CK_BYTES; RSHA[$k]=$CK_SHA
+done
+for k in "${!DOLD[@]}"; do
+  check_one "${DOLD[$k]}"; info="old $CK_STATE $CK_BYTES $CK_SHA"
+  check_one "${DNEW[$k]}"; DINFO[$k]="$info ; new $CK_STATE $CK_BYTES $CK_SHA"
+  diff -u -- "${DOLD[$k]}" "${DNEW[$k]}" > /dev/null; drc=$?
+  [ "$drc" -le 1 ] || fail "无法生成差异：${DOLD[$k]} -> ${DNEW[$k]}（diff 退出码 $drc）"
+done
+
+# ---------- model pin, before the run ----------
+[ -f "$PROFILE_FILE" ] || fail "找不到 profile 文件 $PROFILE_FILE"
+cfg_model=$(sed -n 's/^[[:space:]]*model[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$PROFILE_FILE" | head -1)
+cfg_effort=$(sed -n 's/^[[:space:]]*model_reasoning_effort[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$PROFILE_FILE" | head -1)
+cfg_summary=$(sed -n 's/^[[:space:]]*model_reasoning_summary[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$PROFILE_FILE" | head -1)
+[ "$cfg_model" = "$EXPECTED_MODEL" ] || fail "profile「$profile」配置的模型是「${cfg_model:-未设置}」，要求 $EXPECTED_MODEL"
+
+# ---------- snapshot and input ----------
+head=$(git rev-parse HEAD 2>/dev/null || echo none)
+if [ -n "$(git status --porcelain 2>/dev/null)" ]; then dirty=yes; else dirty=no; fi
+{
+  echo "=== 审查快照 ==="
+  echo "项：$item"
+  echo "slug：$slug    运行：r$seq    尝试：$attempt_id"
+  echo "git HEAD：$head    工作树有未提交改动：$dirty"
+  echo "wrapper sha256：$WRAPPER_SHA"
+  echo "profile：$profile    模型：$cfg_model    推理强度：${cfg_effort:-默认}    推理摘要：${cfg_summary:-未设置}"
+  echo
+  echo "=== 必需材料清单（wrapper 已逐个检查：存在、非空、文本、≤${MAXB} 字节、未被 .gitignore 忽略）==="
+  for k in "${!REQ[@]}"; do
+    printf '%s\t%s\t%s 字节\tsha256 %s\n' "${REQ[$k]}" "${RSTATE[$k]}" "${RBYTES[$k]}" "${RSHA[$k]}"
+  done
+  if [ ${#DOLD[@]} -gt 0 ]; then
+    echo
+    echo "=== 差异材料清单（两侧都已逐个检查；只发送 diff -u，旧文件不全文发送）==="
+    for k in "${!DOLD[@]}"; do printf '%s -> %s\t%s\n' "${DOLD[$k]}" "${DNEW[$k]}" "${DINFO[$k]}"; done
+  fi
+  echo
+  echo "=== git status --short ==="
+  git status --short
+  echo
+  echo "=== diff（已跟踪文件，相对 HEAD）==="
+  if git rev-parse -q --verify HEAD >/dev/null; then git diff HEAD; else git diff; fi
+  for k in "${!REQ[@]}"; do
+    echo
+    echo "=== 必需材料: ${REQ[$k]}（${RSTATE[$k]}，sha256 ${RSHA[$k]}）==="
+    cat "${REQ[$k]}"
+  done
+  for k in "${!DOLD[@]}"; do
+    echo
+    echo "=== 差异（diff -u）: ${DOLD[$k]} -> ${DNEW[$k]} ==="
+    diff -u -- "${DOLD[$k]}" "${DNEW[$k]}"
+    [ $? -le 1 ] || echo "${DOLD[$k]}" >> "$AD/diff_failed"
+  done
+  echo
+  echo "=== 其他未跟踪文件（不是本项声明的材料；只列名，未发送内容）==="
+  others=$(git ls-files --others --exclude-standard | grep -vxF -f <(printf '%s\n' "${REQ[@]}" "${DOLD[@]}" "${DNEW[@]}") || true)
+  if [ -n "$others" ]; then printf '%s\n' "$others"; else echo "（无）"; fi
+} > "$AD/input.txt" || fail "组装审查输入失败"
+[ -e "$AD/diff_failed" ] && fail "组装审查输入时无法生成差异：$(tr '\n' ' ' < "$AD/diff_failed")"
+cp -p "$AD/input.txt" .review/input.txt
+insha=$(sha256sum "$AD/input.txt" | awk '{print $1}')
+inbytes=$(stat -c%s "$AD/input.txt")
+
+if [ "$DRYRUN" = 1 ]; then
+  echo "DRY RUN：项「$item」slug=$slug 下一次运行 r$seq；必需材料 ${#REQ[@]} 个全部通过检查"
+  echo "输入 ${inbytes} 字节，sha256 $insha（.review/input.txt）；profile $profile → $cfg_model；超时 ${TMO}s；未调用 codex，未存档"
+  exit 0
+fi
+
+# ---------- record the attempt, then launch it in its own process group ----------
+archive INCOMPLETE
+trap 'on_signal TERM' TERM
+trap 'on_signal INT' INT
+trap 'on_signal HUP' HUP
+setsid timeout -k "$KILL_AFTER" "$TMO" codex exec -p "$profile" -o "$AD/review_raw.md" "$PROMPT" \
+  < "$AD/input.txt" > "$AD/codex.log" 2>&1 &
+cpid=$!
+# the attempt must lead its own process group, or a group kill could hit us
+mypg=$(ps -o pgid= -p $$ | tr -d ' ')
+for i in $(seq 1 50); do
+  pg=$(ps -o pgid= -p "$cpid" 2>/dev/null | tr -d ' ')
+  { [ -z "$pg" ] || [ "$pg" = "$cpid" ]; } && break
+  sleep 0.1
+done
+if [ -n "$pg" ] && { [ "$pg" != "$cpid" ] || [ "$pg" = "$mypg" ]; }; then
+  kill -KILL "$cpid" 2>/dev/null
+  fail "无法为本次尝试建立独立进程组（pgid=$pg，wrapper pgid=$mypg）；已终止并放弃"
+fi
+wait "$cpid"; rc=$?
+trap - TERM INT HUP
+if pgrep -g "$cpid" >/dev/null 2>&1; then kill -KILL -- "-$cpid" 2>/dev/null; stragglers=yes; fi
+
+obs_model=$(sed -n 's/^model: //p' "$AD/codex.log" | head -1)
+obs_effort=$(sed -n 's/^reasoning effort: //p' "$AD/codex.log" | head -1)
+obs_summary=$(sed -n 's/^reasoning summaries: //p' "$AD/codex.log" | head -1)
+case "$rc" in
+  0) ;;
+  124|137) fail "超过内部超时 ${TMO}s（退出码 $rc），已终止本次尝试的进程组；部分输出作废存档" ;;
+  *) fail "codex 退出码 $rc，见 .review/history/$slug/r$seq.codex.log" ;;
+esac
+[ -s "$AD/review_raw.md" ] || fail "codex 没有产生审查输出"
+[ "$obs_model" = "$EXPECTED_MODEL" ] || fail "codex 实际使用的模型是「${obs_model:-未知}」，要求 $EXPECTED_MODEL；本轮结果作废"
+first=$(head -1 "$AD/review_raw.md" | tr -d '\r')
+printf '%s\n' "$first" | grep -qxE 'VERDICT: (PASS|FAIL|ERROR)' || fail "审查输出首行格式不符：「$first」"
+verdict=${first#VERDICT: }
+if [ "$verdict" = ERROR ]; then
+  archive ERROR ""
+else
+  archive "$verdict"
+fi
+cp -p "$AD/review_raw.md" .review/review.md
+cat .review/review.md
+echo
+echo "[codex-review] r$seq $verdict；尝试 $attempt_id；模型 $obs_model / $obs_effort / 摘要 ${obs_summary:-未知}；输入 sha256 $insha；存档 docs/reviews/$slug/r$seq.md"
