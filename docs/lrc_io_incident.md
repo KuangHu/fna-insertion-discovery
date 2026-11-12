@@ -6,7 +6,7 @@ Times are PST (UTC−8). Error lines are quoted verbatim from the job logs.
 
 ## Summary
 
-- Two jobs on nine cf1 nodes got `Input/output error` (EIO, errno 5) or `Cannot send after transport endpoint shutdown` (ESHUTDOWN, errno 108). This happened on both reads and writes to `/global/scratch`.
+- Two jobs on nine cf1 nodes (11-10/11; more on 11-11 evening, see the update section) got `Input/output error` (EIO, errno 5) or `Cannot send after transport endpoint shutdown` (ESHUTDOWN, errno 108). This happened on both reads and writes to `/global/scratch`.
 - The errors are intermittent. They hit several unrelated nodes in the same evening (roughly 20:30–02:00 on 11-10/11), and one node again on 11-11 afternoon.
 - On n0052 (job 27786542), every read of six existing files failed partway through.
 - One task did not end after a time-limit cancel: slurmstepd reported `JOB NOT ENDING WITH SIGNALS`. A file in that task's output path has an mtime 2 h 14 min after the job ended.
@@ -75,6 +75,15 @@ Notes on the table:
 
 - `$W/hits/shard_52.raw` was being written by this task (blastn output). It is 133,572,473 bytes with mtime **2026-11-11 04:15:09**, 2 h 14 min after the job was cancelled.
 - None of our jobs were running at that time, so we do not know what wrote to it. Possibly the two leftover processes were stuck in uninterruptible I/O and finished a pending write once the filesystem recovered.
+
+## Update, 2026-11-11 evening
+
+- **Job 27788009** (n0057.cf1, 18:46:32 – 18:48:35): `CANCELLED by 0`, i.e. by root. The batch script never started: its stdout file `$W/v0/logs/isall_V0_27788009.out` was never created. The previous job on that node (27786705, another user) ended FAILED at 18:33.
+- **Job 27788052** (n0059.cf1, 18:50:10 – 19:45:04, FAILED): reads genome FASTA files from `/global/scratch` with 64 workers.
+  - In 55 minutes it read only 38.4 GB (`MaxDiskRead`). It used 1 h 20 min of CPU time, about 2% of 64 cores, so the workers were mostly blocked on I/O.
+  - It then hit 25 read errors of type EIO, ENOTCONN or ESHUTDOWN in a short burst, and our tool stopped at its limit of 5.
+  - The verbatim failure record is `node_io_error_limit: node n0059.cf1 had 25 I/O errors (limit 5)`.
+  - sacct shows six other FAILED jobs from another user on n0059.cf1 between 16:56 and 18:44 the same day.
 
 ## Our mitigations (for context)
 
