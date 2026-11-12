@@ -7,11 +7,11 @@
 #SBATCH --cpus-per-task=64
 #SBATCH --mem=60G
 #SBATCH --time=03:00:00
-#SBATCH --exclude=n0052
+#SBATCH --exclude=n0052.cf1
 #SBATCH --output=/global/scratch/users/kh36969/fna_ins_discovery/isref_all/v0/logs/%x_%j.out
 # SPEC item 0 (V0 trusted manifest).  Submit from the repo root as
 #   mkdir -p $W/v0/logs
-#   sbatch --exclude=n0052 --export=ALL,GIT_COMMIT=$(git rev-parse HEAD) slurm/isref_all/V0_prep.sh
+#   sbatch --exclude=n0052.cf1 --export=ALL,GIT_COMMIT=$(git rev-parse HEAD) slurm/isref_all/V0_prep.sh
 # n0052 is excluded (SPEC V0-7): job 27786542 failed every read there with
 # Input/output error (docs/lrc_io_incident.md).  248 re-reads a genome after a
 # transient EIO/ENOTCONN/ESHUTDOWN (V0-7) and fails the run at 5 such errors.
