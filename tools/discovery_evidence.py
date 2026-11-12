@@ -35,21 +35,42 @@ def shared_intervals(graph, names):
         max_within_block_deletion=max(deletions,default=0),max_within_block_insertion=max(insertions,default=0))
 
 
+SEEDED = ('seeded',)
+
+
 def padded_seed(event, lengths, pad=200):
-    """Return seed or a reason; never drop unseedable candidates silently."""
-    left,right=int(event['junction_L']),int(event['junction_R'])
-    genome,contig=event['empty_ref_genome'],event['empty_ref_contig']
-    if left<0 or right<left:return None,'invalid_junction_frame'
-    length=lengths[genome][contig]
-    start,end=left-pad,right+pad
-    if start<0 or end>length:return None,'seed_padding_outside_contig'
-    return dict(locus_id=event['event_id'],seed_genome=genome,contig=contig,start=start,end=end),'seeded'
+    """Return (seed, 'seeded') or (None, reason); never drop or crash on a candidate.
+
+    SPEC M1-B: a seed is junction +/- pad, and Arm B gives junction_L/R only
+    when the empty reference's own allele was placed exactly
+    (frame_status == 'verified', B-6). Any other frame has no verified
+    junction, so the candidate is kept as unseedable with the frame as its
+    reason (B-8); the raw call interval stays in the Arm B table for anyone
+    who wants to look, but it is not a junction and is not used as one."""
+    genome, contig = event.get('empty_ref_genome', ''), event.get('empty_ref_contig', '')
+    if genome not in lengths or contig not in lengths[genome]:
+        return None, 'genome_or_contig_not_in_manifest'
+    length = lengths[genome][contig]
+    frame = event.get('frame_status')
+    if frame != 'verified':
+        return None, 'no_frame_status' if frame is None else 'frame_' + frame
+    try:
+        left, right = int(event['junction_L']), int(event['junction_R'])
+    except (KeyError, ValueError):
+        return None, 'invalid_junction_frame'
+    if left < 0 or right < left or right > length:
+        return None, 'invalid_junction_frame'
+    start, end = left - pad, right + pad
+    if start < 0 or end > length:
+        return None, 'seed_padding_outside_contig'
+    return dict(locus_id=event['event_id'], seed_genome=genome, contig=contig,
+                start=start, end=end), 'seeded'
 
 
 def candidate_row(event, seed_status, reconstructed):
     """Preserve all Layer 1 candidates, with explicit Layer 2 availability."""
     r=dict(event)
-    r['layer2_status']=('unseedable' if seed_status!='seeded' else
+    r['layer2_status']=('unseedable' if seed_status not in SEEDED else
                         'unresolved' if reconstructed is None else
                         'ambiguous' if reconstructed['placement_status']=='ambiguous' else 'resolved')
     r['seed_status']=seed_status

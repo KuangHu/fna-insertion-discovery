@@ -11,7 +11,8 @@ from discovery_pipeline import inputs
 class DiscoveryPipelineTests(unittest.TestCase):
     def event(self):
         return dict(event_id='p.B000001',empty_ref_genome='g',empty_ref_contig='c',
-                    junction_L='700',junction_R='705')
+                    frame_status='verified',junction_L='700',junction_R='705',
+                    empty_ref_call_start='690',empty_ref_call_end='712')
 
     def test_retained_short_interval_is_preserved_by_padding(self):
         seed,status=padded_seed(self.event(),{'g':{'c':2000}})
@@ -35,6 +36,22 @@ class DiscoveryPipelineTests(unittest.TestCase):
     def test_invalid_frame_cannot_be_seeded(self):
         event=self.event();event['junction_R']='699'
         self.assertEqual(padded_seed(event,{'g':{'c':2000}}),(None,'invalid_junction_frame'))
+
+    def test_unverified_or_ambiguous_frame_is_unseedable(self):
+        for frame in ('unverified','ambiguous'):
+            event=self.event();event.update(frame_status=frame,junction_L='-1',junction_R='-1')
+            self.assertEqual(padded_seed(event,{'g':{'c':2000}}),(None,'frame_'+frame))
+            self.assertEqual(candidate_row(event,'frame_'+frame,None)['layer2_status'],'unseedable')
+
+    def test_missing_genome_or_contig_is_a_reason_not_an_exception(self):
+        self.assertEqual(padded_seed(self.event(),{'other':{'c':2000}}),(None,'genome_or_contig_not_in_manifest'))
+        self.assertEqual(padded_seed(self.event(),{'g':{'x':2000}}),(None,'genome_or_contig_not_in_manifest'))
+        row=candidate_row(self.event(),'genome_or_contig_not_in_manifest',None)
+        self.assertEqual(row['layer2_status'],'unseedable')
+
+    def test_no_frame_status_is_unseedable(self):
+        event=self.event();del event['frame_status']
+        self.assertEqual(padded_seed(event,{'g':{'c':2000}}),(None,'no_frame_status'))
 
     def test_manifest_paths_resolve_relative_to_manifest(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -16,7 +16,9 @@ class ArmBCallTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             p=Path(directory)/'calls.bed'
             p.write_text('chr\t100\t200\t>s1\t>s2\t'+record+'\n')
-            return module.parse_call(p)[('chr',100,200)]
+            out,bad=module.parse_call(p)
+            self.assertEqual(bad,[])
+            return out[('chr',100,200)]
 
     def test_real_forward_record_keeps_distinct_lengths(self):
         r=self.parse('>s3:1443:+:NC_003098.1:40181:41626')
@@ -34,6 +36,17 @@ class ArmBCallTests(unittest.TestCase):
 
     def test_missing_call_not_zero_length(self):
         self.assertIsNone(self.parse('*')[0])
+
+    def test_walk_source_sink_kept(self):
+        r=self.parse('>s3:1443:+:NC_003098.1:40181:41626')
+        self.assertEqual(r[5:],('>s3','>s1','>s2'))
+
+    def test_malformed_record_reported_not_guessed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            p=Path(directory)/'calls.bed'
+            p.write_text('chr\t100\t200\t>s1\t>s2\tfoo:12:bar\nchr\t300\t400\t>s1\t>s2\t>s3:x:+:c:1:2\n')
+            out,bad=module.parse_call(p)
+            self.assertEqual((out,bad),({},[1,2]))
 
 
 if __name__=='__main__':unittest.main()

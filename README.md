@@ -16,8 +16,8 @@ catalogue by `armA.max_len` / `armB.max_insert` (both 5000) — but in Arm B it 
 as the larger event, and 2 of 13 IS110 events in the Arm B test were exactly
 that (33 kb and 36 kb bubbles carrying an IS110 transposase). So oversized
 bubbles go to `armB_large_events.tsv` + `armB_large_inserts.fna` with ids
-`<cluster>.L%06d`, and `armB_events.tsv` carries a `parent_large_event_id`
-column to link back. On the 3-genome test this retains 42 bubbles (median 15 kb,
+`<cluster>.L%06d`. (An earlier `parent_large_event_id` column in
+`armB_events.tsv` was never populated; it was removed on 2026-11-11, SPEC M1-B.) On the 3-genome test this retains 42 bubbles (median 15 kb,
 range 5.5–66 kb) that the size gate used to throw away. Stage 32
 (`32_nested_search.py`) mines them for nested <5 kb insertions. It has been
 run on E. coli and K. pneumoniae (2026-09-09, `$W/stage32/`, 26 + 53 rows).

@@ -87,10 +87,20 @@ scripts/30_armB_graph.py
 scripts/lib/tsd.py
 scripts/lib/util.py
 scripts/lib/fasta.py
+scripts/lib/paf.py
 tools/discovery_pipeline.py
 tools/discovery_evidence.py
 tests/test_armB_calls.py
 tests/test_discovery_pipeline.py
+tests/test_armB_graph.py
 scripts/70_allele_reconstructor.py
 docs/DISCOVERY_PIPELINE.md
 docs/MODULES.md
+# 只读参照（被上面的文件引用；不审）
+scripts/lib_insert.py
+tools/audit_armB.py
+tools/audit_armB_layer2.py
+tools/compare_pangraph_mummer.py
+tools/verify_refactored_local.py
+tools/local_debug.py
+tools/local_armB_layer2.py

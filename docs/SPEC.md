@@ -664,6 +664,7 @@ bag 映射的来源（Stage A 的 bag 表）以 `all_queries.tsv` 的 sha256 固
 - 测试：`tests/test_armB_calls.py`、`tests/test_discovery_pipeline.py`，以及本项新增的测试。
 - 只读参照：`scripts/70_allele_reconstructor.py`（Layer 2，2026-08-28 锁定），只用于核对交接契约。对 70 本身的意见记入 `docs/DECISIONS.md`，本项不修改它；要改须用户另行批准。
 - 文档：`docs/DISCOVERY_PIPELINE.md`。
+- 只读参照（被上述文件引用，提供全文以免缺材料；不审，意见可列出但标 `[范围外]`）：`scripts/lib/paf.py`、`scripts/lib_insert.py`、`tools/audit_armB.py`、`tools/audit_armB_layer2.py`、`tools/compare_pangraph_mummer.py`、`tools/verify_refactored_local.py`、`tools/local_debug.py`、`tools/local_armB_layer2.py`（本地 R6/TIGR4 个案工具）。
 
 **不在范围**
 - 过去的运行结果（catalogue / database v2、v3 等）不复核、不重跑。本项的改动只影响今后的输出；v3 所用代码的版本记录在 `docs/CATALOGUE_V3_PROVENANCE.md`。

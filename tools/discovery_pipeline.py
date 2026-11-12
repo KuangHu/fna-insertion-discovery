@@ -51,6 +51,35 @@ def inputs(manifest):
     return paths,records,lengths
 
 
+VERSION_ARGS={'minigraph':['--version'],'gfatools':['version'],'minimap2':['--version'],
+              'samtools':['--version'],'pangraph':['--version'],'nucmer':['--version']}
+
+
+def tool_versions(bins):
+    """G-4: versions measured at run time; a tool that cannot report one stops the run."""
+    v={'python3':sys.version.split()[0]}
+    for name,path in bins.items():
+        if name not in VERSION_ARGS:continue
+        r=subprocess.run([path]+VERSION_ARGS[name],capture_output=True,text=True)
+        text=(r.stdout or r.stderr).strip().splitlines()
+        if r.returncode!=0 or not text:raise ValueError('cannot measure the version of '+name)
+        v[name]=text[0] if name=='samtools' else text[-1]
+    return v
+
+
+def git_provenance():
+    """G-4: the code that ran. git_commit_submit is $GIT_COMMIT, which main()
+    requires before anything runs."""
+    def g(*a):
+        try:return subprocess.run(['git','-C',str(ROOT)]+list(a),capture_output=True,text=True,check=True).stdout
+        except (OSError,subprocess.CalledProcessError):return None
+    head=g('rev-parse','HEAD');status=g('status','--porcelain','--untracked-files=all')
+    return dict(git_commit_submit=os.environ['GIT_COMMIT'],
+                git_commit_runtime=head.strip() if head else 'unavailable',
+                git_dirty=bool(status.strip()) if status is not None else 'unavailable',
+                git_status_porcelain=status.splitlines() if status else [])
+
+
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--manifest',type=Path,required=True,help='One uncompressed FASTA path per line; relative to manifest')
@@ -63,6 +92,8 @@ def main():
     ap.add_argument('--circular',action='store_true',help='Declare circular genomes to supplementary Pangraph')
     args=ap.parse_args()
     try:
+        if not __import__('re').fullmatch(r'[0-9a-f]{40}',os.environ.get('GIT_COMMIT','')):
+            raise ValueError('GIT_COMMIT must be set to the 40-hex commit being run (G-4): GIT_COMMIT=$(git rev-parse HEAD) python3 tools/discovery_pipeline.py ...')
         paths,records,lengths=inputs(args.manifest.resolve())
         if args.threads<1:raise ValueError('threads must be positive')
         if not args.panel_id or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in args.panel_id):
@@ -75,6 +106,7 @@ def main():
             if len(set(names))!=2:raise ValueError('Pangraph requires distinct FASTA record IDs across the two assemblies')
             required+=['pangraph','nucmer','delta_filter','show_coords','show_diff']
         bins={name:executable(getattr(args,name)) for name in required}
+        versions=tool_versions(bins)
         out=args.outdir.resolve()
         if out.exists() and any(out.iterdir()):raise ValueError('Output directory must be empty; use a new directory')
     except (ValueError,OSError,KeyError) as error:ap.error(str(error))
@@ -84,7 +116,11 @@ def main():
     provenance=dict(input_sha256={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in paths},
                     executable_sha256={k:hashlib.sha256(Path(v).read_bytes()).hexdigest() for k,v in bins.items()},
                     scripts_sha256={name:hashlib.sha256((ROOT/'scripts'/name).read_bytes()).hexdigest()
-                                    for name in ('30_armB_graph.py','70_allele_reconstructor.py')},commands=[])
+                                    for name in ('30_armB_graph.py','70_allele_reconstructor.py')},commands=[],
+                    tool_versions=versions,host=os.uname().nodename,
+                    slurm_job_id=os.environ.get('SLURM_JOB_ID'),
+                    slurm_array_task_id=os.environ.get('SLURM_ARRAY_TASK_ID'),
+                    argv=sys.argv,**git_provenance())
     summary=dict(primary_status='running',supplementary_status='not_requested',panel_id=args.panel_id)
     def save():
         (out/'provenance.json').write_text(json.dumps(provenance,indent=2))
@@ -104,6 +140,9 @@ def main():
         run('armB',[sys.executable,str(ROOT/'scripts/30_armB_graph.py'),'--manifest',str(manifest),
             '--outdir',str(arm),'--cluster-id',args.panel_id,'--threads',str(args.threads),
             '--minigraph',bins['minigraph'],'--gfatools',bins['gfatools']],env=environment)
+        marker=arm/'armB_complete.json'
+        if not marker.exists() or json.loads(marker.read_text()).get('status')!='complete':
+            raise RuntimeError('Arm B did not publish armB_complete.json; its output is not usable')
         events=read(arm/'armB_events.tsv');seeds=[];statuses={}
         for event in events:
             seed,status=padded_seed(event,lengths)
@@ -124,6 +163,8 @@ def main():
         else:write_table(out/'candidates.tsv',[],['event_id','layer2_status','seed_status'])
         summary.update(primary_status='complete',primary_candidates=len(events),
             large_events=len(read(arm/'armB_large_events.tsv')),seeded=len(seeds),
+            seed_status_counts=dict(collections.Counter(statuses.values())),
+            armB_counts=json.loads(marker.read_text()).get('counts'),
             layer2_status_counts=dict(collections.Counter(r['layer2_status'] for r in candidates)))
         save()
         if args.supplement:
