@@ -57,3 +57,6 @@ reference/
 # local tooling state, and previous review outputs
 .claude/worktrees/
 .review/
+
+# SLURM logs moved out of the repo root (2026-11-18); job logs are provenance, kept locally
+logs/
