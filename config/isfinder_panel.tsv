@@ -1,0 +1,61 @@
+# Well-studied IS elements for scripts/260_isfinder_boundary.py.
+# is_name: the ISfinder name (first field of the header in IS.fna).
+# tsd_literature: the direct-repeat length usually cited for the element, in bp.
+#   These values were entered by hand from general knowledge, NOT read from the
+#   downloaded file (which carries no TSD field); check an element on ISfinder
+#   before relying on its value. Empty = not entered.
+is_name	tsd_literature	note
+IS1A	9	IS1 family; E. coli
+IS2	5	IS3 family
+IS3	3	IS3 family
+IS4	11-13	IS4 family
+IS5	4	IS5 family
+IS10R	9	Tn10
+IS30	2	IS30 family
+IS150	3	IS3 family
+IS186B	10-12	IS4 family
+IS26	8	IS6 family; resistance plasmids
+IS50R	9	Tn5
+IS903B	9	Tn903
+IS911	3	IS3 family
+IS600	3	IS3 family; Shigella
+IS629	3	IS3 family
+IS1203	3	IS3 family
+IS1397	3-4	IS3 family
+IS21		IS21 family
+IS100		IS21 family; Yersinia
+IS66		IS66 family
+IS91	0	IS91 family; rolling circle, no TSD
+IS200	0	IS200/IS605; no TSD
+IS605	0	IS200/IS605; H. pylori
+IS606	0	IS200/IS605; H. pylori
+ISHp608	0	IS200/IS605; H. pylori
+IS607		IS607 family; H. pylori
+IS6110	3-4	M. tuberculosis
+IS1081		IS256 family; M. tuberculosis
+IS256	8	Staphylococcus, Enterococcus
+IS431mec	8	IS6 family; S. aureus (IS257)
+ISSau1		IS30 family; S. aureus
+IS1272		IS1182 family; S. aureus
+IS1182		IS1182 family; S. aureus
+IS1181	8	ISL3 family; S. aureus
+IS1216E	8	IS6 family; Enterococcus
+IS16	8	IS256 family; Enterococcus
+IS1251	8	ISL3 family; Enterococcus
+ISEfm1		IS982 family; E. faecium
+ISAba1	9	A. baumannii
+ISAba125		IS30 family; A. baumannii
+ISKpn1	3	IS3 family; K. pneumoniae
+ISKpn26	4	IS5 family; K. pneumoniae
+ISEcp1	5	IS1380 family
+IS481	6	B. pertussis
+IS1002		IS481 family; B. pertussis
+IS1663		IS110 family; B. pertussis
+IS1167	8	ISL3 family; S. pneumoniae
+IS1381		IS5 family; S. pneumoniae
+IS1016		IS1595 family; N. meningitidis / gonorrhoeae
+IS1106		IS5 family; Neisseria
+IS1655		IS30 family; Neisseria
+IS222	3	IS3 family; P. aeruginosa
+ISPa11		IS110 family; P. aeruginosa
+IS1548		ISAs1 family; Streptococcus
